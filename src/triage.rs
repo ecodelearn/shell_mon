@@ -75,9 +75,22 @@ pub fn run() -> io::Result<()> {
         println!("   • {:24} → {:24}  {}", s.peer(), s.local(), label(s));
     }
 
+    // DNS reverso (paralelo) para humanizar os IPs públicos.
+    let public_ips: Vec<String> = {
+        let mut v: Vec<String> = out_public.iter().map(|s| s.peer_addr.clone()).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let brands = crate::rdns::resolve_all(&public_ips);
+
     println!("\n🌐 CONEXÕES ATIVAS COM A INTERNET  ({})", out_public.len());
     for s in &out_public {
-        println!("   • {:22} → {:24}  {}", s.local(), s.peer(), label(s));
+        let peer = match brands.get(&s.peer_addr) {
+            Some(b) => format!("{} ({})", s.peer(), b),
+            None => s.peer(),
+        };
+        println!("   • {:22} → {:32}  {}", s.local(), peer, label(s));
     }
 
     println!("\n🔗 CONEXÕES COM A REDE LOCAL (saída)  ({})", out_lan.len());

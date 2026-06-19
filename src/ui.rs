@@ -129,13 +129,22 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect, table_state: &mut TableState
             Some(_) => Cell::from(format!("⚠ {}", s.process)).style(bold(Color::Red)),
             None => Cell::from(s.process.clone()).style(Style::default().fg(Color::Magenta)),
         };
+        // Peer colorido por zona, com a marca (DNS reverso) anexada em cinza.
+        let zcolor = zone_color(zone(&s.peer_addr));
+        let peer_cell = match app.brand(&s.peer_addr) {
+            Some(b) => Cell::from(Line::from(vec![
+                Span::styled(s.peer(), Style::default().fg(zcolor)),
+                Span::styled(format!("  {b}"), Style::default().fg(Color::DarkGray)),
+            ])),
+            None => Cell::from(s.peer()).style(Style::default().fg(zcolor)),
+        };
         Row::new(vec![
             Cell::from(s.netid.clone()).style(Style::default().fg(Color::Cyan)),
             Cell::from(s.state.clone()).style(bold(state_color(&s.state))),
             Cell::from(s.recv_q.to_string()),
             Cell::from(s.send_q.to_string()),
             Cell::from(s.local()),
-            Cell::from(s.peer()).style(Style::default().fg(zone_color(zone(&s.peer_addr)))),
+            peer_cell,
             proc_cell,
             Cell::from(s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into())),
         ])

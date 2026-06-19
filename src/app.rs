@@ -1,7 +1,8 @@
 //! Estado da aplicação: filtros, ordenação, seleção e refresh.
 
-use crate::analysis::browser_ancestor;
+use crate::analysis::{browser_ancestor, zone, Zone};
 use crate::events::EventLog;
+use crate::rdns::Resolver;
 use crate::socket::{collect, Socket, Summary};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -89,11 +90,13 @@ pub struct App {
     browser: HashMap<u32, Option<String>>,
     /// Log de eventos defensivos em disco (None se desabilitado).
     log: Option<EventLog>,
+    /// Resolvedor de DNS reverso em background (nomes humanos pros IPs).
+    rdns: Resolver,
     pub should_quit: bool,
 }
 
 impl App {
-    pub fn new(interval: Duration, is_root: bool, log: Option<EventLog>) -> Self {
+    pub fn new(interval: Duration, is_root: bool, log: Option<EventLog>, rdns_enabled: bool) -> Self {
         let mut app = App {
             sockets: Vec::new(),
             summary: Summary::default(),
@@ -111,6 +114,7 @@ impl App {
             new_at: HashMap::new(),
             browser: HashMap::new(),
             log,
+            rdns: Resolver::new(rdns_enabled),
             should_quit: false,
         };
         app.refresh();
@@ -136,6 +140,11 @@ impl App {
     /// Notificações de desktop estão ativas?
     pub fn notifying(&self) -> bool {
         self.log.as_ref().map(|l| l.notifying()).unwrap_or(false)
+    }
+
+    /// Marca (DNS reverso) já resolvida para um IP, se houver.
+    pub fn brand(&self, ip: &str) -> Option<String> {
+        self.rdns.get(ip)
     }
 
     pub fn refresh(&mut self) {
@@ -166,6 +175,12 @@ impl App {
                 self.summary = Summary::from(&sockets);
                 self.sockets = sockets;
                 self.last_error = None;
+                // Pede DNS reverso (em background) para pares na internet.
+                for s in &self.sockets {
+                    if zone(&s.peer_addr) == Zone::Public {
+                        self.rdns.request(&s.peer_addr);
+                    }
+                }
                 // Registra eventos defensivos (listeners/entradas da LAN).
                 if let Some(log) = self.log.as_mut() {
                     log.record(&self.sockets);

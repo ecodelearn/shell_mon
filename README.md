@@ -22,6 +22,7 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 🔄 **Auto-refresh** em tempo real (padrão 200ms), pausável a qualquer momento
 - 🔍 **Filtro ao vivo** por endereço, processo, estado ou PID
 - 🎨 **Cores por estado** (ESTAB verde, LISTEN azul, TIME-WAIT magenta) e **destaque de conexões novas** por ~1,5s
+- 🏷️ **Nomes dos IPs** (DNS reverso): mostra `→ 140.82.113.25 github` em vez de só o número, resolvido em background sem travar a TUI (`--no-rdns` desativa)
 - 🛡️ **Visão defensiva**: zonas de confiança (loopback / **rede local** / **internet**), contadores de **serviços expostos** e **entradas da LAN**, e ⚠ destaque de conexões abertas por **descendentes de navegador**
 - 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
 - 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
@@ -282,6 +283,7 @@ src/
 ├── events.rs   log de eventos defensivos em disco (listeners, entradas da LAN)
 ├── notify.rs   notificações de desktop (notify-send) com deduplicação
 ├── netcfg.rs   auditoria de rede: gateway/rotas/DNS/vizinhos + DNS suspeito
+├── rdns.rs     DNS reverso (PTR) em background → nomes humanos pros IPs
 ├── triage.rs   relatório defensivo `--triage`
 ├── ui.rs       renderização da TUI (ratatui)
 └── main.rs     terminal, loop de eventos, args, detecção de root
