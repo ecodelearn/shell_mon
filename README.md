@@ -127,10 +127,42 @@ cp scripts/shellmon.desktop ~/.config/autostart/   # autostart do Plasma
 > Em outros compositores Wayland (Hyprland, Sway, river…) a ideia é a mesma:
 > uma *window rule* casando o app-id `shellmon` para `float` + `pin`/`above`.
 
-> **Processos de outros usuários:** o painel roda sem privilégios por padrão
-> (coluna PROCESSO/PID vazia para sockets de terceiros). Para um painel com root,
-> ajuste o `Exec` do `.desktop`/launcher para usar `pkexec`/`sudo` conforme sua
-> política de elevação.
+### Painel com root (processo/PID de todos os sockets)
+
+Sem privilégios, a coluna PROCESSO/PID fica vazia para sockets de outros
+usuários. Para um painel que mostra tudo — inclusive iniciando junto com a
+sessão, sem pedir senha — use o instalador privilegiado:
+
+```bash
+cargo build --release
+sudo scripts/install-elevation.sh
+```
+
+Ele faz isso **com segurança**:
+
+- copia o binário para `/usr/local/bin/shellmon` (`root:root 755`), um local que
+  seu usuário **não** pode sobrescrever;
+- cria `/etc/sudoers.d/shellmon` com uma regra `NOPASSWD` **restrita exatamente a
+  esse caminho** (validada com `visudo -c`).
+
+> Por que `/usr/local/bin` e não `~/.local/bin`? Um `NOPASSWD` apontando para um
+> binário que você mesmo pode editar equivaleria a root irrestrito (bastaria
+> trocá-lo por um shell). Em local root-only, o `sudo` só consegue rodar *aquele*
+> programa, somente-leitura.
+
+Depois, abra o painel elevado:
+
+```bash
+shellmon-panel --root
+# ou instale a entrada de autostart com root:
+cp scripts/shellmon-panel-root.desktop ~/.config/autostart/
+```
+
+Para remover a elevação:
+
+```bash
+sudo rm -f /etc/sudoers.d/shellmon /usr/local/bin/shellmon
+```
 
 ## Como funciona
 
