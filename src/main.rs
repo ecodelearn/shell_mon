@@ -53,8 +53,8 @@ fn run_oneshot(is_root: bool) -> io::Result<()> {
         eprintln!("(dica: rode com sudo para ver o processo de sockets de outros usuários)");
     }
     println!(
-        "{:<5} {:<11} {:<24} {:<24} {:<16} {}",
-        "PROTO", "ESTADO", "LOCAL", "REMOTO", "PROCESSO", "PID"
+        "{:<5} {:<11} {:<24} {:<24} {:<16} PID",
+        "PROTO", "ESTADO", "LOCAL", "REMOTO", "PROCESSO"
     );
     for s in &sockets {
         println!(
