@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=shell_mon (painel)
+GenericName=Monitor de sockets
+Comment=Monitor de sockets de rede em tempo real
+Exec=shellmon-panel
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;Network;
+Keywords=socket;network;ss;tcp;udp;ports;monitor;
+StartupWMClass=shellmon

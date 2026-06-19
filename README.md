@@ -82,6 +82,56 @@ shellmon --help
 | `↑`/`↓` ou `k`/`j` | navegar |
 | `PgUp` / `PgDn` / `Home` | navegação rápida |
 
+## Painel "sempre na tela"
+
+Como o `shellmon` atualiza sozinho (5x/s por padrão), dá para deixá-lo rodando
+num canto da tela como um painel passivo — você trabalha em outra coisa e só dá
+uma olhada quando quiser. O script `scripts/shellmon-panel.sh` abre a TUI numa
+janela [Alacritty](https://alacritty.org) dedicada, com a classe/app-id
+`shellmon` (use isso na regra de janela do seu compositor).
+
+Instalação dos utilitários no PATH do usuário:
+
+```bash
+cargo build --release
+install -m 755 target/release/shellmon       ~/.local/bin/shellmon
+install -m 755 scripts/shellmon-panel.sh      ~/.local/bin/shellmon-panel
+install -m 644 scripts/shellmon.desktop        ~/.local/share/applications/shellmon.desktop
+```
+
+Abrir o painel:
+
+```bash
+shellmon-panel                 # janela Alacritty fixa rodando a TUI
+SHELLMON_COLS=140 shellmon-panel --interval 0.5   # customizando
+```
+
+### Fixar no canto (KDE Plasma / KWin)
+
+1. **Configurações do Sistema → Gerenciamento de Janelas → Regras de Janela → Adicionar Nova**
+2. Em *Correspondência de janela*, **Classe de janela (aplicativo)** → `Exatamente igual a` → `shellmon`
+3. Adicione as propriedades (cada uma como *Forçar* / *Aplicar inicialmente*):
+   - **Flutuante (não no mosaico)**: Sim
+   - **Manter acima das outras**: Sim
+   - **Em todas as áreas de trabalho**: Sim
+   - **Pular barra de tarefas** e **Pular alternador**: Sim
+   - **Posição** e **Tamanho**: o canto/dimensão que preferir
+4. Aplique. Toda janela aberta via `shellmon-panel` já nasce fixa ali.
+
+### Iniciar junto com a sessão
+
+```bash
+cp scripts/shellmon.desktop ~/.config/autostart/   # autostart do Plasma
+```
+
+> Em outros compositores Wayland (Hyprland, Sway, river…) a ideia é a mesma:
+> uma *window rule* casando o app-id `shellmon` para `float` + `pin`/`above`.
+
+> **Processos de outros usuários:** o painel roda sem privilégios por padrão
+> (coluna PROCESSO/PID vazia para sockets de terceiros). Para um painel com root,
+> ajuste o `Exec` do `.desktop`/launcher para usar `pkexec`/`sudo` conforme sua
+> política de elevação.
+
 ## Como funciona
 
 O `shell_mon` executa `ss -tuanpH` (TCP + UDP, todos os estados, numérico, com
