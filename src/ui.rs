@@ -189,6 +189,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let help = "q sair · p pausa · / filtro · t proto · s ordem · r refresh · ↑↓ navega";
         spans.push(Span::styled(help, Style::default().fg(Color::DarkGray)));
+        if app.log_path().is_some() {
+            spans.push(Span::styled("  ·  📝 log", Style::default().fg(Color::Green)));
+        }
         if !app.is_root {
             spans.push(Span::styled(
                 "  ·  sem root: processos de outros usuários ocultos (sudo shellmon)",

@@ -24,6 +24,7 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 🎨 **Cores por estado** (ESTAB verde, LISTEN azul, TIME-WAIT magenta) e **destaque de conexões novas** por ~1,5s
 - 🛡️ **Visão defensiva**: zonas de confiança (loopback / **rede local** / **internet**), contadores de **serviços expostos** e **entradas da LAN**, e ⚠ destaque de conexões abertas por **descendentes de navegador**
 - 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
+- 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
 - 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (all / tcp / udp)
 - 👮 **Detecção de root** — avisa quando, sem `sudo`, os processos de sockets de outros usuários ficam ocultos
 - 📜 **Modo lista** (`--list`) para uso scriptável / one-shot
@@ -182,6 +183,28 @@ indicar problema:
   navegador** (Firefox/Chrome/Chromium/Brave) são marcadas, para flagrar ataques
   que escalam a partir da navegação.
 
+### Log de eventos
+
+No modo TUI, o `shell_mon` registra em disco os eventos de **alto sinal** — sem
+encher de ruído — para você revisar depois "o que aconteceu enquanto eu não
+estava olhando". Fica ligado por padrão (`--no-log` desativa):
+
+```
+~/.local/share/shellmon/events.log      # ou $SHELLMON_LOG / $XDG_DATA_HOME
+```
+
+São registrados: novos serviços escutando (`LISTEN_NEW`, **HIGH** se exposto),
+listeners que somem (`LISTEN_GONE`) e conexões entrando da LAN (`LAN_INBOUND`,
+**HIGH**) — cada um com data/hora local, processo/PID e ⚠ se vier de navegador:
+
+```
+2026-06-19 16:55:43  [INFO] SESSION_START    monitorando — base: 8 listeners (2 expostos), 0 entradas da LAN
+2026-06-19 16:55:45  [HIGH] LISTEN_NEW       tcp 0.0.0.0:4444 (python3, pid 78743) [todas as interfaces]
+2026-06-19 16:55:47  [INFO] LISTEN_GONE      tcp 0.0.0.0:4444 (python3, pid 78743) [todas as interfaces]
+```
+
+Acompanhe ao vivo com `tail -f ~/.local/share/shellmon/events.log`.
+
 ### Triagem (`--triage`)
 
 Relatório único e humanizado do estado atual — ótimo para uma checagem rápida:
@@ -213,6 +236,7 @@ src/
 ├── socket.rs   coleta e parsing do `ss` + resumo agregado (com contadores de ameaça)
 ├── analysis.rs zonas de confiança (IP) e linhagem de processos (/proc)
 ├── app.rs      estado: filtros, ordenação, scroll, diffs, cache de navegador
+├── events.rs   log de eventos defensivos em disco (listeners, entradas da LAN)
 ├── triage.rs   relatório defensivo `--triage`
 ├── ui.rs       renderização da TUI (ratatui)
 └── main.rs     terminal, loop de eventos, args, detecção de root

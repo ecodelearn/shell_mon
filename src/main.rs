@@ -2,6 +2,7 @@
 
 mod analysis;
 mod app;
+mod events;
 mod socket;
 mod triage;
 mod ui;
@@ -41,7 +42,8 @@ fn main() -> io::Result<()> {
         return run_oneshot(is_root);
     }
 
-    run_tui(interval, is_root)
+    let log_enabled = !args.iter().any(|a| a == "--no-log");
+    run_tui(interval, is_root, log_enabled)
 }
 
 fn run_oneshot(is_root: bool) -> io::Result<()> {
@@ -78,14 +80,28 @@ fn run_oneshot(is_root: bool) -> io::Result<()> {
     Ok(())
 }
 
-fn run_tui(interval: Duration, is_root: bool) -> io::Result<()> {
+fn run_tui(interval: Duration, is_root: bool, log_enabled: bool) -> io::Result<()> {
+    // Abre o log de eventos antes de entrar na tela alternativa, para que um
+    // eventual aviso de erro fique visível.
+    let log = if log_enabled {
+        match events::EventLog::open_default() {
+            Ok(l) => Some(l),
+            Err(e) => {
+                eprintln!("shellmon: não foi possível abrir o log de eventos: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     enable_raw_mode()?;
     let mut out = stdout();
     execute!(out, EnterAlternateScreen)?;
     let backend = ratatui::backend::CrosstermBackend::new(out);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let mut app = App::new(interval, is_root);
+    let mut app = App::new(interval, is_root, log);
     let res = event_loop(&mut terminal, &mut app);
 
     disable_raw_mode()?;
@@ -197,7 +213,12 @@ OPÇÕES:
     -l, --list              imprime a lista uma vez e sai (scriptável)
         --triage            relatório defensivo (expostos, LAN, navegador) e sai
     -i, --interval <SEGS>   intervalo de refresh (padrão: 0.2)
+        --no-log            não registrar eventos em disco (log on por padrão)
     -h, --help              esta ajuda
+
+LOG DE EVENTOS (modo TUI):
+    Registra listeners e entradas da LAN em
+    $SHELLMON_LOG ou ~/.local/share/shellmon/events.log
 
 TECLAS (modo TUI):
     q / Esc / Ctrl-C   sair

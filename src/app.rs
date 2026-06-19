@@ -1,6 +1,7 @@
 //! Estado da aplicação: filtros, ordenação, seleção e refresh.
 
 use crate::analysis::browser_ancestor;
+use crate::events::EventLog;
 use crate::socket::{collect, Socket, Summary};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -86,11 +87,13 @@ pub struct App {
     new_at: HashMap<String, Instant>,
     /// Cache por PID: nome do navegador ancestral, se houver.
     browser: HashMap<u32, Option<String>>,
+    /// Log de eventos defensivos em disco (None se desabilitado).
+    log: Option<EventLog>,
     pub should_quit: bool,
 }
 
 impl App {
-    pub fn new(interval: Duration, is_root: bool) -> Self {
+    pub fn new(interval: Duration, is_root: bool, log: Option<EventLog>) -> Self {
         let mut app = App {
             sockets: Vec::new(),
             summary: Summary::default(),
@@ -107,10 +110,16 @@ impl App {
             seen_keys: HashSet::new(),
             new_at: HashMap::new(),
             browser: HashMap::new(),
+            log,
             should_quit: false,
         };
         app.refresh();
         app
+    }
+
+    /// Caminho do log de eventos, se habilitado.
+    pub fn log_path(&self) -> Option<&std::path::Path> {
+        self.log.as_ref().map(|l| l.path())
     }
 
     pub fn refresh(&mut self) {
@@ -141,6 +150,10 @@ impl App {
                 self.summary = Summary::from(&sockets);
                 self.sockets = sockets;
                 self.last_error = None;
+                // Registra eventos defensivos (listeners/entradas da LAN).
+                if let Some(log) = self.log.as_mut() {
+                    log.record(&self.sockets);
+                }
             }
             Err(e) => self.last_error = Some(e),
         }
