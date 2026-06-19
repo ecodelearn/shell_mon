@@ -1,5 +1,7 @@
 //! Coleta e parsing da saída do comando `ss`.
 
+use crate::analysis::{zone, Zone};
+use std::collections::HashSet;
 use std::process::Command;
 
 /// Um socket individual, já normalizado a partir da saída do `ss`.
@@ -45,6 +47,10 @@ pub struct Summary {
     pub estab: usize,
     pub listen: usize,
     pub time_wait: usize,
+    /// Serviços em LISTEN acessíveis pela rede (não-loopback).
+    pub exposed: usize,
+    /// Conexões estabelecidas ENTRANDO da rede local (peer LAN num serviço nosso).
+    pub inbound_lan: usize,
 }
 
 impl Summary {
@@ -53,6 +59,13 @@ impl Summary {
             total: sockets.len(),
             ..Default::default()
         };
+        // Portas em que temos serviços escutando (para detectar conexões entrantes).
+        let listen_ports: HashSet<(&str, &str)> = sockets
+            .iter()
+            .filter(|sk| sk.state == "LISTEN")
+            .map(|sk| (sk.netid.as_str(), sk.local_port.as_str()))
+            .collect();
+
         for sock in sockets {
             match sock.netid.as_str() {
                 "tcp" => s.tcp += 1,
@@ -64,6 +77,17 @@ impl Summary {
                 "LISTEN" => s.listen += 1,
                 "TIME-WAIT" => s.time_wait += 1,
                 _ => {}
+            }
+            if sock.state == "LISTEN"
+                && matches!(zone(&sock.local_addr), Zone::Any | Zone::Lan | Zone::Public)
+            {
+                s.exposed += 1;
+            }
+            if sock.state == "ESTAB"
+                && zone(&sock.peer_addr) == Zone::Lan
+                && listen_ports.contains(&(sock.netid.as_str(), sock.local_port.as_str()))
+            {
+                s.inbound_lan += 1;
             }
         }
         s

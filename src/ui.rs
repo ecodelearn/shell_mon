@@ -1,5 +1,6 @@
 //! Renderização da TUI com ratatui.
 
+use crate::analysis::{zone, Zone};
 use crate::app::App;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -21,6 +22,17 @@ pub fn state_color(state: &str) -> Color {
         "FIN-WAIT-1" | "FIN-WAIT-2" => Color::Red, // encerrando
         "UNCONN" => Color::DarkGray,       // UDP sem conexão
         _ => Color::White,
+    }
+}
+
+/// Cor por zona de confiança do par remoto.
+fn zone_color(z: Zone) -> Color {
+    match z {
+        Zone::Loopback => Color::DarkGray,  // só a própria máquina
+        Zone::LinkLocal => Color::DarkGray,
+        Zone::Lan => Color::Cyan,           // rede local
+        Zone::Public => Color::LightYellow, // internet (chama atenção)
+        Zone::Any => Color::DarkGray,
     }
 }
 
@@ -61,6 +73,19 @@ fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
         Span::raw("  "),
         Span::styled("time-wait ", Style::default().fg(Color::DarkGray)),
         Span::styled(s.time_wait.to_string(), bold(Color::Magenta)),
+        Span::raw("    "),
+        // Indicadores defensivos: vermelho quando há algo a observar.
+        Span::styled("expostos ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            s.exposed.to_string(),
+            bold(if s.exposed > 0 { Color::Yellow } else { Color::Green }),
+        ),
+        Span::raw("  "),
+        Span::styled("lan-in ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            s.inbound_lan.to_string(),
+            bold(if s.inbound_lan > 0 { Color::Red } else { Color::Green }),
+        ),
         Span::styled(pause, bold(Color::Yellow)),
     ]);
     let title = format!(
@@ -97,14 +122,21 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect, table_state: &mut TableState
         } else {
             Style::default()
         };
+        // Conexão aberta por (descendente de) navegador — vetor que escala
+        // a partir da navegação. Marca o processo com ⚠.
+        let browser = app.browser_of(s.pid);
+        let proc_cell = match browser {
+            Some(_) => Cell::from(format!("⚠ {}", s.process)).style(bold(Color::Red)),
+            None => Cell::from(s.process.clone()).style(Style::default().fg(Color::Magenta)),
+        };
         Row::new(vec![
             Cell::from(s.netid.clone()).style(Style::default().fg(Color::Cyan)),
             Cell::from(s.state.clone()).style(bold(state_color(&s.state))),
             Cell::from(s.recv_q.to_string()),
             Cell::from(s.send_q.to_string()),
             Cell::from(s.local()),
-            Cell::from(s.peer()),
-            Cell::from(s.process.clone()).style(Style::default().fg(Color::Magenta)),
+            Cell::from(s.peer()).style(Style::default().fg(zone_color(zone(&s.peer_addr)))),
+            proc_cell,
             Cell::from(s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into())),
         ])
         .style(base)

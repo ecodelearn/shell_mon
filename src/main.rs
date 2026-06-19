@@ -1,7 +1,9 @@
 //! shell_mon — monitor de sockets em tempo real (TUI) sobre o comando `ss`.
 
+mod analysis;
 mod app;
 mod socket;
+mod triage;
 mod ui;
 
 use app::{App, Proto};
@@ -21,6 +23,11 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    // Triagem defensiva: relatório humanizado e sai.
+    if args.iter().any(|a| a == "--triage") {
+        return triage::run();
+    }
+
     // Modo "lista simples": imprime e sai (scriptável).
     let one_shot = args.iter().any(|a| a == "-l" || a == "--list");
 
@@ -28,7 +35,7 @@ fn main() -> io::Result<()> {
     let interval_secs = parse_interval(&args).unwrap_or(0.2).max(0.05);
     let interval = Duration::from_secs_f64(interval_secs);
 
-    let is_root = is_root();
+    let is_root = analysis::is_root();
 
     if one_shot {
         return run_oneshot(is_root);
@@ -179,17 +186,6 @@ fn parse_interval(args: &[String]) -> Option<f64> {
     None
 }
 
-/// Detecta root via euid (sem dependências externas).
-fn is_root() -> bool {
-    // SAFETY: geteuid() é sempre seguro de chamar e não tem efeitos colaterais.
-    unsafe { libc_geteuid() == 0 }
-}
-
-extern "C" {
-    #[link_name = "geteuid"]
-    fn libc_geteuid() -> u32;
-}
-
 fn print_help() {
     println!(
         "shell_mon — monitor de sockets em tempo real (sobre `ss`)
@@ -199,6 +195,7 @@ USO:
 
 OPÇÕES:
     -l, --list              imprime a lista uma vez e sai (scriptável)
+        --triage            relatório defensivo (expostos, LAN, navegador) e sai
     -i, --interval <SEGS>   intervalo de refresh (padrão: 0.2)
     -h, --help              esta ajuda
 

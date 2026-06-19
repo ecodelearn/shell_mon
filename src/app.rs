@@ -1,5 +1,6 @@
 //! Estado da aplicação: filtros, ordenação, seleção e refresh.
 
+use crate::analysis::browser_ancestor;
 use crate::socket::{collect, Socket, Summary};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -83,6 +84,8 @@ pub struct App {
     seen_keys: HashSet<String>,
     /// Quando cada conexão nova foi detectada (para expirar o destaque).
     new_at: HashMap<String, Instant>,
+    /// Cache por PID: nome do navegador ancestral, se houver.
+    browser: HashMap<u32, Option<String>>,
     pub should_quit: bool,
 }
 
@@ -103,6 +106,7 @@ impl App {
             last_error: None,
             seen_keys: HashSet::new(),
             new_at: HashMap::new(),
+            browser: HashMap::new(),
             should_quit: false,
         };
         app.refresh();
@@ -125,6 +129,15 @@ impl App {
                 self.new_at
                     .retain(|k, t| current.contains(k) && now.duration_since(*t) < HIGHLIGHT_DURATION);
                 self.seen_keys = current;
+                // Atualiza o cache de navegador para os PIDs presentes; remove
+                // os que sumiram para não crescer indefinidamente.
+                let pids: HashSet<u32> = sockets.iter().filter_map(|s| s.pid).collect();
+                self.browser.retain(|pid, _| pids.contains(pid));
+                for pid in pids {
+                    self.browser
+                        .entry(pid)
+                        .or_insert_with(|| browser_ancestor(pid));
+                }
                 self.summary = Summary::from(&sockets);
                 self.sockets = sockets;
                 self.last_error = None;
@@ -137,6 +150,13 @@ impl App {
     /// Uma conexão está "nova" se foi detectada há menos de `HIGHLIGHT_DURATION`.
     pub fn is_new(&self, key: &str) -> bool {
         self.new_at.contains_key(key)
+    }
+
+    /// Nome do navegador ancestral de um PID, se a conexão foi aberta por
+    /// um (descendente de) navegador.
+    pub fn browser_of(&self, pid: Option<u32>) -> Option<&str> {
+        pid.and_then(|p| self.browser.get(&p))
+            .and_then(|o| o.as_deref())
     }
 
     pub fn maybe_refresh(&mut self) {

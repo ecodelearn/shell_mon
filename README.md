@@ -19,9 +19,11 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 
 ## Recursos
 
-- 🔄 **Auto-refresh** configurável (padrão 2s), pausável a qualquer momento
+- 🔄 **Auto-refresh** em tempo real (padrão 200ms), pausável a qualquer momento
 - 🔍 **Filtro ao vivo** por endereço, processo, estado ou PID
-- 🎨 **Cores por estado** (ESTAB verde, LISTEN amarelo, TIME-WAIT vermelho) e **destaque de conexões novas** entre refreshes
+- 🎨 **Cores por estado** (ESTAB verde, LISTEN azul, TIME-WAIT magenta) e **destaque de conexões novas** por ~1,5s
+- 🛡️ **Visão defensiva**: zonas de confiança (loopback / **rede local** / **internet**), contadores de **serviços expostos** e **entradas da LAN**, e ⚠ destaque de conexões abertas por **descendentes de navegador**
+- 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
 - 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (all / tcp / udp)
 - 👮 **Detecção de root** — avisa quando, sem `sudo`, os processos de sockets de outros usuários ficam ocultos
 - 📜 **Modo lista** (`--list`) para uso scriptável / one-shot
@@ -164,6 +166,41 @@ Para remover a elevação:
 sudo rm -f /etc/sudoers.d/shellmon /usr/local/bin/shellmon
 ```
 
+## Visão defensiva
+
+O `shell_mon` ajuda a **observar e entender** atividade de rede suspeita. Ele
+classifica cada par remoto em **zonas de confiança** e destaca o que costuma
+indicar problema:
+
+- **Zonas**: `loopback` (cinza, só a máquina) · `rede local` (ciano) · `internet`
+  (amarelo). A coluna REMOTO é colorida por zona.
+- **Serviços expostos**: contador no topo de quantos serviços estão em `LISTEN`
+  acessíveis pela rede (não-loopback) — uma porta dos fundos apareceria aqui.
+- **Entradas da LAN** (`lan-in`): conexões estabelecidas **entrando** de um peer
+  da rede local para um serviço seu — fica **vermelho** quando há alguma.
+- **⚠ via navegador**: conexões abertas por um processo **descendente de um
+  navegador** (Firefox/Chrome/Chromium/Brave) são marcadas, para flagrar ataques
+  que escalam a partir da navegação.
+
+### Triagem (`--triage`)
+
+Relatório único e humanizado do estado atual — ótimo para uma checagem rápida:
+
+```bash
+sudo shellmon --triage     # com root: atribui processo/PID a tudo
+shellmon --triage          # sem root: funciona, mas oculta donos de serviços
+```
+
+Mostra, em linguagem clara: serviços escutando expostos à rede, conexões
+entrando da LAN, conexões ativas com a internet (marcando as que vêm do
+navegador) e um resumo no rodapé.
+
+> **Limite importante:** um monitor rodando *na própria máquina* potencialmente
+> comprometida tem alcance limitado — um invasor com root pode ocultar rastros.
+> Use o `shell_mon` para pegar o óbvio e ganhar visibilidade, mas combine com
+> firewall de host, inspeção do roteador e observação a partir de outro
+> dispositivo.
+
 ## Como funciona
 
 O `shell_mon` executa `ss -tuanpH` (TCP + UDP, todos os estados, numérico, com
@@ -173,8 +210,10 @@ processo, sem cabeçalho), parseia a saída de forma robusta — lidando com IPv
 
 ```
 src/
-├── socket.rs   coleta e parsing do `ss` + resumo agregado
-├── app.rs      estado: filtros, ordenação, scroll, diffs entre refreshes
+├── socket.rs   coleta e parsing do `ss` + resumo agregado (com contadores de ameaça)
+├── analysis.rs zonas de confiança (IP) e linhagem de processos (/proc)
+├── app.rs      estado: filtros, ordenação, scroll, diffs, cache de navegador
+├── triage.rs   relatório defensivo `--triage`
 ├── ui.rs       renderização da TUI (ratatui)
 └── main.rs     terminal, loop de eventos, args, detecção de root
 ```
