@@ -85,8 +85,9 @@ pub fn run() -> io::Result<()> {
         println!("   • {:22} → {:24}  {}", s.local(), s.peer(), label(s));
     }
 
-    // Auditoria de configuração de rede (gateway/DNS/vizinhos).
+    // Auditoria de configuração de rede (gateway/DNS/vizinhos) e firewall.
     crate::netcfg::NetAudit::collect().print();
+    crate::netcfg::Firewall::detect().print();
 
     let via_nav = out_public
         .iter()

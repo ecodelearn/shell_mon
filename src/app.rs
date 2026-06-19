@@ -121,6 +121,9 @@ impl App {
             for w in crate::netcfg::NetAudit::collect().warnings() {
                 log.warn("DNS_SUSPECT", &w);
             }
+            for w in crate::netcfg::Firewall::detect().warnings() {
+                log.warn("FIREWALL", &w);
+            }
         }
         app
     }

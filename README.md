@@ -26,7 +26,7 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
 - 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
 - 🔔 **Notificações** (`notify-send`): alerta no desktop em eventos de alta severidade (novo serviço exposto, entrada da LAN, DNS suspeito)
-- 🧭 **Auditoria de rede** (`--triage`): checa gateway/rotas/DNS e **sinaliza DNS não-padrão empurrado pelo roteador** (sequestro de DNS), além de listar os dispositivos da LAN
+- 🧭 **Auditoria de rede** (`--triage`): checa gateway/rotas/DNS e **sinaliza DNS não-padrão empurrado pelo roteador** (sequestro de DNS), lista os dispositivos da LAN e audita o **firewall** (avisa se a entrada não estiver em DROP)
 - 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (all / tcp / udp)
 - 👮 **Detecção de root** — avisa quando, sem `sudo`, os processos de sockets de outros usuários ficam ocultos
 - 📜 **Modo lista** (`--list`) para uso scriptável / one-shot
@@ -226,6 +226,18 @@ apenas empurrando um servidor DNS malicioso. O `shell_mon` audita isso:
 - um DNS público não reconhecido vira aviso `DNS_SUSPECT` (log + notificação)
   já na inicialização;
 - a `--triage` mostra gateway, rotas, DNS classificados e os dispositivos da LAN.
+
+A `--triage` também **audita o firewall de host** (firewalld/ufw): mostra a zona
+padrão e se a política de entrada é `DROP` (bloqueada) ou `ACCEPT` (exposta). Se
+o firewall estiver inativo ou aceitando entrada, vira aviso `FIREWALL` no log e
+notificação. Exemplo de saída saudável:
+
+```
+🧱 FIREWALL
+   backend: firewalld (ativo)
+   zona padrão: public
+   entrada: DROP  → bloqueada por padrão ✅
+```
 
 Se um DNS suspeito for sinalizado, **fixe o seu** e impeça o roteador de
 empurrar outro:

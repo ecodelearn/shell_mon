@@ -107,6 +107,124 @@ impl NetAudit {
     }
 }
 
+/// Estado do firewall de host.
+pub struct Firewall {
+    pub backend: String,
+    pub active: bool,
+    pub default_zone: Option<String>,
+    /// Política/target de entrada da zona padrão (DROP/REJECT/default/ACCEPT).
+    pub incoming: Option<String>,
+}
+
+/// Um target de firewalld que efetivamente bloqueia entrada não solicitada.
+fn target_denies(t: &str) -> bool {
+    matches!(
+        t.to_ascii_uppercase().as_str(),
+        "DROP" | "REJECT" | "%%REJECT%%" | "DEFAULT"
+    )
+}
+
+impl Firewall {
+    pub fn detect() -> Firewall {
+        // firewalld
+        let running = cmd("firewall-cmd", &["--state"])
+            .map(|s| s.trim() == "running")
+            .unwrap_or(false);
+        if running {
+            let zone = cmd("firewall-cmd", &["--get-default-zone"]).map(|s| s.trim().to_string());
+            let incoming = zone.as_deref().and_then(zone_target);
+            return Firewall {
+                backend: "firewalld".into(),
+                active: true,
+                default_zone: zone,
+                incoming,
+            };
+        }
+        // outros backends (sem inspeção profunda de regras, que exigiria root)
+        for svc in ["ufw", "nftables", "iptables"] {
+            if cmd("systemctl", &["is-active", svc]).map(|s| s.trim() == "active").unwrap_or(false) {
+                return Firewall {
+                    backend: svc.into(),
+                    active: true,
+                    default_zone: None,
+                    incoming: None,
+                };
+            }
+        }
+        let backend = if installed("firewall-cmd") {
+            "firewalld (parado)"
+        } else if installed("ufw") {
+            "ufw (parado)"
+        } else {
+            "nenhum"
+        };
+        Firewall {
+            backend: backend.into(),
+            active: false,
+            default_zone: None,
+            incoming: None,
+        }
+    }
+
+    /// `Some(true)` se a entrada é negada por padrão; `Some(false)` se aceita;
+    /// `None` se não foi possível determinar.
+    pub fn deny_incoming(&self) -> Option<bool> {
+        self.incoming.as_deref().map(target_denies)
+    }
+
+    pub fn warnings(&self) -> Vec<String> {
+        let mut w = Vec::new();
+        if !self.active {
+            w.push("Firewall inativo — entrada da rede não está sendo filtrada".to_string());
+        } else if self.deny_incoming() == Some(false) {
+            let z = self.default_zone.as_deref().unwrap_or("padrão");
+            w.push(format!(
+                "Firewall: zona '{z}' aceita entrada (ACCEPT) — máquina exposta na rede"
+            ));
+        }
+        w
+    }
+
+    pub fn print(&self) {
+        println!("\n🧱 FIREWALL");
+        println!(
+            "   backend: {} ({})",
+            self.backend,
+            if self.active { "ativo" } else { "INATIVO" }
+        );
+        if let Some(z) = &self.default_zone {
+            println!("   zona padrão: {z}");
+        }
+        match (&self.incoming, self.deny_incoming()) {
+            (Some(t), Some(true)) => println!("   entrada: {t}  → bloqueada por padrão ✅"),
+            (Some(t), Some(false)) => println!("   entrada: {t}  → ⚠ ACEITA (exposto)"),
+            _ if self.active => println!("   entrada: política não inspecionada (precisa de root?)"),
+            _ => {}
+        }
+        for w in self.warnings() {
+            println!("   ⛔ {w}");
+        }
+    }
+}
+
+/// Target da zona via `firewall-cmd --zone=<z> --list-all`.
+fn zone_target(zone: &str) -> Option<String> {
+    let out = cmd("firewall-cmd", &["--zone", zone, "--list-all"])?;
+    out.lines().find_map(|l| {
+        l.trim()
+            .strip_prefix("target:")
+            .map(|r| r.trim().to_string())
+    })
+}
+
+/// O binário existe no PATH? (checa via `--version`, aceitando qualquer saída).
+fn installed(prog: &str) -> bool {
+    std::process::Command::new(prog)
+        .arg("--version")
+        .output()
+        .is_ok()
+}
+
 fn cmd(cmd: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(cmd).args(args).output().ok()?;
     if out.status.success() {
@@ -238,5 +356,13 @@ mod tests {
         assert!(looks_like_ip("2606:4700:4700::1111"));
         assert!(!looks_like_ip("dns.quad9.net"));
         assert!(!looks_like_ip(""));
+    }
+
+    #[test]
+    fn firewall_target_bloqueia() {
+        assert!(target_denies("DROP"));
+        assert!(target_denies("REJECT"));
+        assert!(target_denies("default")); // firewalld rejeita não-solicitado
+        assert!(!target_denies("ACCEPT"));
     }
 }

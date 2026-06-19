@@ -149,6 +149,7 @@ fn notif_title(kind: &str) -> &'static str {
         "LISTEN_NEW" => "🛡 Novo serviço escutando exposto",
         "LAN_INBOUND" => "🛡 Conexão entrando da rede local",
         "DNS_SUSPECT" => "🛡 DNS suspeito na rede",
+        "FIREWALL" => "🛡 Firewall desprotegido",
         _ => "🛡 shell_mon",
     }
 }
