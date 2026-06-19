@@ -28,7 +28,8 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
 - 🔔 **Notificações** (`notify-send`): alerta no desktop em eventos de alta severidade (novo serviço exposto, entrada da LAN, DNS suspeito)
 - 🧭 **Auditoria de rede** (`--triage`): checa gateway/rotas/DNS e **sinaliza DNS não-padrão empurrado pelo roteador** (sequestro de DNS), lista os dispositivos da LAN e audita o **firewall** (avisa se a entrada não estiver em DROP)
-- 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (all / tcp / udp)
+- 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (rede / tcp / udp / **unix**)
+- 🧦 **UNIX domain sockets** (IPC local): visíveis pela tecla `t` (ficam fora da visão padrão de rede para não inundar), com toda a lógica defensiva aplicada só aos sockets de rede
 - 👮 **Detecção de root** — avisa quando, sem `sudo`, os processos de sockets de outros usuários ficam ocultos
 - 📜 **Modo lista** (`--list`) para uso scriptável / one-shot
 
@@ -82,8 +83,8 @@ shellmon --help
 | `p` | pausar / retomar auto-refresh |
 | `r` | refresh manual |
 | `/` | filtrar (endereço, processo, estado, PID) |
-| `t` | alternar protocolo (all → tcp → udp) |
-| `a` | voltar para todos os protocolos |
+| `t` | alternar protocolo (rede → tcp → udp → unix) |
+| `a` | voltar para rede (tcp+udp) |
 | `s` | alternar ordenação |
 | `↑`/`↓` ou `k`/`j` | navegar |
 | `PgUp` / `PgDn` / `Home` | navegação rápida |

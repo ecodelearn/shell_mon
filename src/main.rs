@@ -188,7 +188,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         }
         KeyCode::Char('s') => app.sort = app.sort.next(),
         KeyCode::Char('a') => {
-            app.proto = Proto::All;
+            app.proto = Proto::Net;
             app.clamp_selection();
         }
         KeyCode::Down | KeyCode::Char('j') => app.move_down(),
@@ -239,8 +239,8 @@ TECLAS (modo TUI):
     p                  pausar/retomar auto-refresh
     r                  refresh manual
     /                  filtrar (endereço, processo, estado, PID)
-    t                  alternar protocolo (all → tcp → udp)
-    a                  voltar para todos os protocolos
+    t                  alternar protocolo (rede → tcp → udp → unix)
+    a                  voltar para rede (tcp+udp)
     s                  alternar ordenação
     ↑/↓ ou k/j         navegar  ·  PgUp/PgDn  ·  Home
 

@@ -170,7 +170,7 @@ fn default_path() -> PathBuf {
 fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String, String>) {
     let listen_ports: HashSet<(&str, &str)> = sockets
         .iter()
-        .filter(|s| s.state == "LISTEN")
+        .filter(|s| s.state == "LISTEN" && s.is_network())
         .map(|s| (s.netid.as_str(), s.local_port.as_str()))
         .collect();
 
@@ -178,6 +178,11 @@ fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String,
     let mut inbound = HashMap::new();
 
     for s in sockets {
+        // Sockets UNIX (IPC local) aparecem/somem o tempo todo e não são
+        // ameaça de rede — ficam fora do log de eventos.
+        if !s.is_network() {
+            continue;
+        }
         if s.state == "LISTEN" {
             let z = zone(&s.local_addr);
             let exposed = matches!(z, Zone::Any | Zone::Lan | Zone::Public);

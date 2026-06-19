@@ -64,6 +64,9 @@ fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
         Span::raw("  "),
         Span::styled("udp ", Style::default().fg(Color::DarkGray)),
         Span::styled(s.udp.to_string(), bold(Color::Magenta)),
+        Span::raw("  "),
+        Span::styled("unix ", Style::default().fg(Color::DarkGray)),
+        Span::styled(s.unix.to_string(), bold(Color::Blue)),
         Span::raw("   "),
         Span::styled("estab ", Style::default().fg(Color::DarkGray)),
         Span::styled(s.estab.to_string(), bold(Color::Green)),
@@ -129,14 +132,19 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect, table_state: &mut TableState
             Some(_) => Cell::from(format!("⚠ {}", s.process)).style(bold(Color::Red)),
             None => Cell::from(s.process.clone()).style(Style::default().fg(Color::Magenta)),
         };
-        // Peer colorido por zona, com a marca (DNS reverso) anexada em cinza.
-        let zcolor = zone_color(zone(&s.peer_addr));
-        let peer_cell = match app.brand(&s.peer_addr) {
-            Some(b) => Cell::from(Line::from(vec![
-                Span::styled(s.peer(), Style::default().fg(zcolor)),
-                Span::styled(format!("  {b}"), Style::default().fg(Color::DarkGray)),
-            ])),
-            None => Cell::from(s.peer()).style(Style::default().fg(zcolor)),
+        // Peer colorido por zona (só rede), com a marca (DNS reverso) em cinza.
+        // UNIX sockets não têm zona/IP — ficam neutros.
+        let peer_cell = if s.is_network() {
+            let zcolor = zone_color(zone(&s.peer_addr));
+            match app.brand(&s.peer_addr) {
+                Some(b) => Cell::from(Line::from(vec![
+                    Span::styled(s.peer(), Style::default().fg(zcolor)),
+                    Span::styled(format!("  {b}"), Style::default().fg(Color::DarkGray)),
+                ])),
+                None => Cell::from(s.peer()).style(Style::default().fg(zcolor)),
+            }
+        } else {
+            Cell::from(s.peer()).style(Style::default().fg(Color::DarkGray))
         };
         Row::new(vec![
             Cell::from(s.netid.clone()).style(Style::default().fg(Color::Cyan)),

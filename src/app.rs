@@ -13,24 +13,38 @@ const HIGHLIGHT_DURATION: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Proto {
-    All,
+    /// Rede (TCP+UDP) — padrão; UNIX fica de fora para não inundar.
+    Net,
     Tcp,
     Udp,
+    Unix,
 }
 
 impl Proto {
     pub fn label(&self) -> &'static str {
         match self {
-            Proto::All => "all",
+            Proto::Net => "rede",
             Proto::Tcp => "tcp",
             Proto::Udp => "udp",
+            Proto::Unix => "unix",
         }
     }
     pub fn next(self) -> Proto {
         match self {
-            Proto::All => Proto::Tcp,
+            Proto::Net => Proto::Tcp,
             Proto::Tcp => Proto::Udp,
-            Proto::Udp => Proto::All,
+            Proto::Udp => Proto::Unix,
+            Proto::Unix => Proto::Net,
+        }
+    }
+
+    /// O socket passa por este filtro de protocolo?
+    pub fn matches(self, netid: &str) -> bool {
+        match self {
+            Proto::Net => netid == "tcp" || netid == "udp",
+            Proto::Tcp => netid == "tcp",
+            Proto::Udp => netid == "udp",
+            Proto::Unix => netid.starts_with("u_"),
         }
     }
 }
@@ -100,7 +114,7 @@ impl App {
         let mut app = App {
             sockets: Vec::new(),
             summary: Summary::default(),
-            proto: Proto::All,
+            proto: Proto::Net,
             sort: SortKey::State,
             filter: String::new(),
             filter_mode: false,
@@ -163,9 +177,10 @@ impl App {
                 self.new_at
                     .retain(|k, t| current.contains(k) && now.duration_since(*t) < HIGHLIGHT_DURATION);
                 self.seen_keys = current;
-                // Atualiza o cache de navegador para os PIDs presentes; remove
-                // os que sumiram para não crescer indefinidamente.
-                let pids: HashSet<u32> = sockets.iter().filter_map(|s| s.pid).collect();
+                // Cache de navegador só para PIDs de sockets de rede (os de IPC
+                // local não importam para a detecção de escalada).
+                let pids: HashSet<u32> =
+                    sockets.iter().filter(|s| s.is_network()).filter_map(|s| s.pid).collect();
                 self.browser.retain(|pid, _| pids.contains(pid));
                 for pid in pids {
                     self.browser
@@ -175,9 +190,9 @@ impl App {
                 self.summary = Summary::from(&sockets);
                 self.sockets = sockets;
                 self.last_error = None;
-                // Pede DNS reverso (em background) para pares na internet.
+                // Pede DNS reverso (em background) para pares de rede na internet.
                 for s in &self.sockets {
-                    if zone(&s.peer_addr) == Zone::Public {
+                    if s.is_network() && zone(&s.peer_addr) == Zone::Public {
                         self.rdns.request(&s.peer_addr);
                     }
                 }
@@ -216,11 +231,7 @@ impl App {
         let mut v: Vec<&Socket> = self
             .sockets
             .iter()
-            .filter(|s| match self.proto {
-                Proto::All => true,
-                Proto::Tcp => s.netid == "tcp",
-                Proto::Udp => s.netid == "udp",
-            })
+            .filter(|s| self.proto.matches(&s.netid))
             .filter(|s| {
                 if needle.is_empty() {
                     return true;

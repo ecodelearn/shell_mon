@@ -19,7 +19,7 @@ pub fn run() -> io::Result<()> {
 
     let listen_ports: HashSet<(&str, &str)> = sockets
         .iter()
-        .filter(|s| s.state == "LISTEN")
+        .filter(|s| s.state == "LISTEN" && s.is_network())
         .map(|s| (s.netid.as_str(), s.local_port.as_str()))
         .collect();
 
@@ -28,7 +28,7 @@ pub fn run() -> io::Result<()> {
     let mut out_public: Vec<&Socket> = Vec::new();
     let mut out_lan: Vec<&Socket> = Vec::new();
 
-    for s in &sockets {
+    for s in sockets.iter().filter(|s| s.is_network()) {
         if s.state == "LISTEN" && matches!(zone(&s.local_addr), Zone::Any | Zone::Lan | Zone::Public) {
             exposed.push(s);
         }

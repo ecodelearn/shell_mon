@@ -36,6 +36,12 @@ impl Socket {
     pub fn peer(&self) -> String {
         format!("{}:{}", self.peer_addr, self.peer_port)
     }
+
+    /// É um socket de rede (TCP/UDP)? UNIX domain sockets não são — a lógica
+    /// defensiva (zonas, exposição, eventos) só se aplica aos de rede.
+    pub fn is_network(&self) -> bool {
+        self.netid == "tcp" || self.netid == "udp"
+    }
 }
 
 /// Resumo agregado (estilo `ss -s`), calculado localmente.
@@ -47,6 +53,7 @@ pub struct Summary {
     pub estab: usize,
     pub listen: usize,
     pub time_wait: usize,
+    pub unix: usize,
     /// Serviços em LISTEN acessíveis pela rede (não-loopback).
     pub exposed: usize,
     /// Conexões estabelecidas ENTRANDO da rede local (peer LAN num serviço nosso).
@@ -59,10 +66,10 @@ impl Summary {
             total: sockets.len(),
             ..Default::default()
         };
-        // Portas em que temos serviços escutando (para detectar conexões entrantes).
+        // Portas em que temos serviços de rede escutando (p/ detectar entrantes).
         let listen_ports: HashSet<(&str, &str)> = sockets
             .iter()
-            .filter(|sk| sk.state == "LISTEN")
+            .filter(|sk| sk.state == "LISTEN" && sk.is_network())
             .map(|sk| (sk.netid.as_str(), sk.local_port.as_str()))
             .collect();
 
@@ -70,6 +77,7 @@ impl Summary {
             match sock.netid.as_str() {
                 "tcp" => s.tcp += 1,
                 "udp" => s.udp += 1,
+                n if n.starts_with("u_") => s.unix += 1,
                 _ => {}
             }
             match sock.state.as_str() {
@@ -77,6 +85,10 @@ impl Summary {
                 "LISTEN" => s.listen += 1,
                 "TIME-WAIT" => s.time_wait += 1,
                 _ => {}
+            }
+            // Exposição e entradas só fazem sentido para sockets de rede.
+            if !sock.is_network() {
+                continue;
             }
             if sock.state == "LISTEN"
                 && matches!(zone(&sock.local_addr), Zone::Any | Zone::Lan | Zone::Public)
@@ -96,11 +108,11 @@ impl Summary {
 
 /// Executa `ss` e devolve a lista de sockets parseada.
 ///
-/// Flags: `-t -u` (TCP+UDP), `-a` (todos os estados), `-n` (numérico,
-/// portas como número), `-p` (processo) e `-H` (sem cabeçalho).
+/// Flags: `-t -u -x` (TCP+UDP+UNIX), `-a` (todos os estados), `-n` (numérico),
+/// `-p` (processo) e `-H` (sem cabeçalho).
 pub fn collect() -> Result<Vec<Socket>, String> {
     let output = Command::new("ss")
-        .args(["-tuanpH"])
+        .args(["-tuxanpH"])
         .output()
         .map_err(|e| format!("falha ao executar `ss`: {e}"))?;
 
@@ -113,22 +125,34 @@ pub fn collect() -> Result<Vec<Socket>, String> {
     Ok(text.lines().filter_map(parse_line).collect())
 }
 
-/// Parseia uma linha do `ss -tuanpH`.
+/// Parseia uma linha do `ss -tuxanpH`.
 ///
-/// Layout: `Netid State Recv-Q Send-Q Local:Port Peer:Port [Process...]`
+/// Layout TCP/UDP: `Netid State Recv-Q Send-Q Local:Port Peer:Port [Process]`
+/// Layout UNIX:    `u_* State Recv-Q Send-Q Addr Inode Addr Inode [Process]`
+///                 (endereço e inode são campos separados, não `addr:port`)
 fn parse_line(line: &str) -> Option<Socket> {
     let mut fields = line.split_whitespace();
     let netid = fields.next()?.to_string();
     let state = fields.next()?.to_string();
     let recv_q = fields.next()?.parse().unwrap_or(0);
     let send_q = fields.next()?.parse().unwrap_or(0);
-    let local = fields.next()?;
-    let peer = fields.next()?;
+
+    let (local_addr, local_port, peer_addr, peer_port);
+    if netid.starts_with("u_") {
+        // UNIX: endereço (caminho/`*`/`@abstrato`) e inode são campos distintos.
+        local_addr = fields.next()?.to_string();
+        local_port = fields.next()?.to_string();
+        peer_addr = fields.next()?.to_string();
+        peer_port = fields.next()?.to_string();
+    } else {
+        let local = fields.next()?;
+        let peer = fields.next()?;
+        (local_addr, local_port) = split_addr_port(local);
+        (peer_addr, peer_port) = split_addr_port(peer);
+    }
+
     // O resto (pode conter espaços) é a descrição do processo.
     let process_raw: String = fields.collect::<Vec<_>>().join(" ");
-
-    let (local_addr, local_port) = split_addr_port(local);
-    let (peer_addr, peer_port) = split_addr_port(peer);
     let (process, pid) = parse_process(&process_raw);
 
     Some(Socket {
@@ -216,5 +240,28 @@ mod tests {
         let s = parse_line("udp ESTAB 0 0 192.168.15.126%enp2s0:68 192.168.15.1:67").unwrap();
         assert_eq!(s.local_addr, "192.168.15.126%enp2s0");
         assert_eq!(s.local_port, "68");
+    }
+
+    #[test]
+    fn parse_unix_com_caminho_e_processo() {
+        let line = r#"u_str LISTEN 0 4096 /run/dbus/system_bus_socket 17295 * 0 users:(("systemd",pid=1,fd=3))"#;
+        let s = parse_line(line).unwrap();
+        assert_eq!(s.netid, "u_str");
+        assert_eq!(s.state, "LISTEN");
+        assert_eq!(s.local_addr, "/run/dbus/system_bus_socket");
+        assert_eq!(s.local_port, "17295"); // inode
+        assert_eq!(s.peer_addr, "*");
+        assert_eq!(s.process, "systemd");
+        assert_eq!(s.pid, Some(1));
+        assert!(!s.is_network());
+    }
+
+    #[test]
+    fn parse_unix_anonimo() {
+        let s = parse_line("u_str ESTAB 0 0 * 55714 * 55713").unwrap();
+        assert_eq!(s.local_addr, "*");
+        assert_eq!(s.local_port, "55714");
+        assert_eq!(s.peer_port, "55713");
+        assert!(s.process.is_empty());
     }
 }
