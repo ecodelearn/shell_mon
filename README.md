@@ -25,6 +25,8 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 🛡️ **Visão defensiva**: zonas de confiança (loopback / **rede local** / **internet**), contadores de **serviços expostos** e **entradas da LAN**, e ⚠ destaque de conexões abertas por **descendentes de navegador**
 - 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
 - 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
+- 🔔 **Notificações** (`notify-send`): alerta no desktop em eventos de alta severidade (novo serviço exposto, entrada da LAN, DNS suspeito)
+- 🧭 **Auditoria de rede** (`--triage`): checa gateway/rotas/DNS e **sinaliza DNS não-padrão empurrado pelo roteador** (sequestro de DNS), além de listar os dispositivos da LAN
 - 🔀 **Ordenação** alternável (estado, local, remoto, processo, filas) e filtro de protocolo (all / tcp / udp)
 - 👮 **Detecção de root** — avisa quando, sem `sudo`, os processos de sockets de outros usuários ficam ocultos
 - 📜 **Modo lista** (`--list`) para uso scriptável / one-shot
@@ -205,6 +207,35 @@ listeners que somem (`LISTEN_GONE`) e conexões entrando da LAN (`LAN_INBOUND`,
 
 Acompanhe ao vivo com `tail -f ~/.local/share/shellmon/events.log`.
 
+### Notificações de desktop
+
+Eventos de **alta severidade** (novo serviço exposto, entrada da LAN, DNS
+suspeito) também disparam uma notificação via `notify-send` — para você ser
+avisado na hora, mesmo com o painel fora de vista. Ligado por padrão se
+`notify-send` existir; `--no-notify` desativa. Há deduplicação para não repetir
+o mesmo alerta em sequência.
+
+### Auditoria de rede e sequestro de DNS
+
+Um roteador comprometido entrega configuração via DHCP (DNS, gateway, rotas) —
+um invasor pode redirecionar todo o seu tráfego **sem invadir a máquina**,
+apenas empurrando um servidor DNS malicioso. O `shell_mon` audita isso:
+
+- classifica cada servidor DNS em uso como **conhecido** (Quad9, Cloudflare,
+  Google…), **local** (o roteador faz DNS) ou **⚠ não reconhecido**;
+- um DNS público não reconhecido vira aviso `DNS_SUSPECT` (log + notificação)
+  já na inicialização;
+- a `--triage` mostra gateway, rotas, DNS classificados e os dispositivos da LAN.
+
+Se um DNS suspeito for sinalizado, **fixe o seu** e impeça o roteador de
+empurrar outro:
+
+```bash
+sudo nmcli connection modify "Wired connection 1" ipv4.ignore-auto-dns yes \
+    ipv4.dns "9.9.9.9 149.112.112.112"
+sudo nmcli connection up "Wired connection 1"
+```
+
 ### Triagem (`--triage`)
 
 Relatório único e humanizado do estado atual — ótimo para uma checagem rápida:
@@ -237,6 +268,8 @@ src/
 ├── analysis.rs zonas de confiança (IP) e linhagem de processos (/proc)
 ├── app.rs      estado: filtros, ordenação, scroll, diffs, cache de navegador
 ├── events.rs   log de eventos defensivos em disco (listeners, entradas da LAN)
+├── notify.rs   notificações de desktop (notify-send) com deduplicação
+├── netcfg.rs   auditoria de rede: gateway/rotas/DNS/vizinhos + DNS suspeito
 ├── triage.rs   relatório defensivo `--triage`
 ├── ui.rs       renderização da TUI (ratatui)
 └── main.rs     terminal, loop de eventos, args, detecção de root

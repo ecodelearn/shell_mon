@@ -3,6 +3,8 @@
 mod analysis;
 mod app;
 mod events;
+mod netcfg;
+mod notify;
 mod socket;
 mod triage;
 mod ui;
@@ -43,7 +45,8 @@ fn main() -> io::Result<()> {
     }
 
     let log_enabled = !args.iter().any(|a| a == "--no-log");
-    run_tui(interval, is_root, log_enabled)
+    let notify_enabled = !args.iter().any(|a| a == "--no-notify");
+    run_tui(interval, is_root, log_enabled, notify_enabled)
 }
 
 fn run_oneshot(is_root: bool) -> io::Result<()> {
@@ -80,11 +83,11 @@ fn run_oneshot(is_root: bool) -> io::Result<()> {
     Ok(())
 }
 
-fn run_tui(interval: Duration, is_root: bool, log_enabled: bool) -> io::Result<()> {
+fn run_tui(interval: Duration, is_root: bool, log_enabled: bool, notify_enabled: bool) -> io::Result<()> {
     // Abre o log de eventos antes de entrar na tela alternativa, para que um
     // eventual aviso de erro fique visível.
     let log = if log_enabled {
-        match events::EventLog::open_default() {
+        match events::EventLog::open_default(notify_enabled) {
             Ok(l) => Some(l),
             Err(e) => {
                 eprintln!("shellmon: não foi possível abrir o log de eventos: {e}");
@@ -214,11 +217,13 @@ OPÇÕES:
         --triage            relatório defensivo (expostos, LAN, navegador) e sai
     -i, --interval <SEGS>   intervalo de refresh (padrão: 0.2)
         --no-log            não registrar eventos em disco (log on por padrão)
+        --no-notify         não enviar notificações de desktop (on por padrão)
     -h, --help              esta ajuda
 
-LOG DE EVENTOS (modo TUI):
-    Registra listeners e entradas da LAN em
+LOG E ALERTAS (modo TUI):
+    Registra listeners, entradas da LAN e DNS suspeito em
     $SHELLMON_LOG ou ~/.local/share/shellmon/events.log
+    Eventos de alta severidade também disparam notify-send (desktop).
 
 TECLAS (modo TUI):
     q / Esc / Ctrl-C   sair

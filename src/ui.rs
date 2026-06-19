@@ -192,6 +192,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
         if app.log_path().is_some() {
             spans.push(Span::styled("  ·  📝 log", Style::default().fg(Color::Green)));
         }
+        if app.notifying() {
+            spans.push(Span::styled(" 🔔", Style::default().fg(Color::Green)));
+        }
         if !app.is_root {
             spans.push(Span::styled(
                 "  ·  sem root: processos de outros usuários ocultos (sudo shellmon)",

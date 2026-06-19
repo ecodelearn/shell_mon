@@ -85,6 +85,9 @@ pub fn run() -> io::Result<()> {
         println!("   • {:22} → {:24}  {}", s.local(), s.peer(), label(s));
     }
 
+    // Auditoria de configuração de rede (gateway/DNS/vizinhos).
+    crate::netcfg::NetAudit::collect().print();
+
     let via_nav = out_public
         .iter()
         .filter(|s| s.pid.and_then(browser_ancestor).is_some())

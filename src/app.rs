@@ -114,12 +114,25 @@ impl App {
             should_quit: false,
         };
         app.refresh();
+        // Auditoria de configuração de rede uma vez no início: sinaliza DNS
+        // não reconhecido (possível sequestro pela rede local) no log e via
+        // notificação.
+        if let Some(log) = app.log.as_mut() {
+            for w in crate::netcfg::NetAudit::collect().warnings() {
+                log.warn("DNS_SUSPECT", &w);
+            }
+        }
         app
     }
 
     /// Caminho do log de eventos, se habilitado.
     pub fn log_path(&self) -> Option<&std::path::Path> {
         self.log.as_ref().map(|l| l.path())
+    }
+
+    /// Notificações de desktop estão ativas?
+    pub fn notifying(&self) -> bool {
+        self.log.as_ref().map(|l| l.notifying()).unwrap_or(false)
     }
 
     pub fn refresh(&mut self) {

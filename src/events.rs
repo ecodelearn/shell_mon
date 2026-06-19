@@ -3,6 +3,7 @@
 //! posterior ("o que rolou enquanto eu não estava olhando").
 
 use crate::analysis::{browser_ancestor, zone, Zone};
+use crate::notify::Notifier;
 use crate::socket::Socket;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
@@ -33,6 +34,7 @@ struct ListenInfo {
 pub struct EventLog {
     path: PathBuf,
     file: File,
+    notifier: Notifier,
     prev_listeners: HashMap<String, ListenInfo>,
     prev_inbound: HashMap<String, String>,
     started: bool,
@@ -42,7 +44,7 @@ impl EventLog {
     /// Abre (criando se preciso) o log no caminho padrão:
     /// `$SHELLMON_LOG`, ou `$XDG_DATA_HOME/shellmon/events.log`, ou
     /// `$HOME/.local/share/shellmon/events.log`.
-    pub fn open_default() -> std::io::Result<EventLog> {
+    pub fn open_default(notify_enabled: bool) -> std::io::Result<EventLog> {
         let path = default_path();
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -51,6 +53,7 @@ impl EventLog {
         Ok(EventLog {
             path,
             file,
+            notifier: Notifier::new(notify_enabled),
             prev_listeners: HashMap::new(),
             prev_inbound: HashMap::new(),
             started: false,
@@ -59,6 +62,16 @@ impl EventLog {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Notificações de desktop estão ativas?
+    pub fn notifying(&self) -> bool {
+        self.notifier.enabled()
+    }
+
+    /// Registra um aviso de alta severidade (ex.: DNS suspeito do `netcfg`).
+    pub fn warn(&mut self, kind: &str, desc: &str) {
+        self.write(Severity::High, kind, desc);
     }
 
     /// Diffa o estado atual contra o anterior e registra os eventos relevantes.
@@ -123,6 +136,20 @@ impl EventLog {
         // Erros de escrita no log não devem derrubar o monitor.
         let _ = self.file.write_all(line.as_bytes());
         let _ = self.file.flush();
+        // Eventos de alta severidade também viram notificação de desktop.
+        if matches!(sev, Severity::High) {
+            self.notifier.notify(notif_title(kind), desc);
+        }
+    }
+}
+
+/// Título amigável da notificação conforme o tipo de evento.
+fn notif_title(kind: &str) -> &'static str {
+    match kind {
+        "LISTEN_NEW" => "🛡 Novo serviço escutando exposto",
+        "LAN_INBOUND" => "🛡 Conexão entrando da rede local",
+        "DNS_SUSPECT" => "🛡 DNS suspeito na rede",
+        _ => "🛡 shell_mon",
     }
 }
 
