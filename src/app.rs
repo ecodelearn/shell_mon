@@ -1,8 +1,12 @@
 //! Estado da aplicação: filtros, ordenação, seleção e refresh.
 
 use crate::socket::{collect, Socket, Summary};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
+
+/// Por quanto tempo uma conexão nova fica destacada, independente do intervalo
+/// de refresh (a 200ms, um único ciclo seria curto demais para enxergar).
+const HIGHLIGHT_DURATION: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Proto {
@@ -77,9 +81,9 @@ pub struct App {
     pub last_error: Option<String>,
     /// Chaves vistas no último refresh, para marcar conexões novas.
     seen_keys: HashSet<String>,
-    pub new_keys: HashSet<String>,
+    /// Quando cada conexão nova foi detectada (para expirar o destaque).
+    new_at: HashMap<String, Instant>,
     pub should_quit: bool,
-    pub status: String,
 }
 
 impl App {
@@ -98,9 +102,8 @@ impl App {
             last_refresh: Instant::now(),
             last_error: None,
             seen_keys: HashSet::new(),
-            new_keys: HashSet::new(),
+            new_at: HashMap::new(),
             should_quit: false,
-            status: String::new(),
         };
         app.refresh();
         app
@@ -110,12 +113,17 @@ impl App {
         match collect() {
             Ok(sockets) => {
                 let current: HashSet<String> = sockets.iter().map(|s| s.key()).collect();
-                // Conexões que não existiam no refresh anterior.
-                self.new_keys = if self.seen_keys.is_empty() {
-                    HashSet::new()
-                } else {
-                    current.difference(&self.seen_keys).cloned().collect()
-                };
+                let now = Instant::now();
+                // Marca conexões que não existiam no refresh anterior (mas não
+                // no primeiro refresh, senão tudo apareceria como "novo").
+                if !self.seen_keys.is_empty() {
+                    for k in current.difference(&self.seen_keys) {
+                        self.new_at.insert(k.clone(), now);
+                    }
+                }
+                // Mantém apenas destaques recentes e que ainda existem.
+                self.new_at
+                    .retain(|k, t| current.contains(k) && now.duration_since(*t) < HIGHLIGHT_DURATION);
                 self.seen_keys = current;
                 self.summary = Summary::from(&sockets);
                 self.sockets = sockets;
@@ -124,6 +132,11 @@ impl App {
             Err(e) => self.last_error = Some(e),
         }
         self.last_refresh = Instant::now();
+    }
+
+    /// Uma conexão está "nova" se foi detectada há menos de `HIGHLIGHT_DURATION`.
+    pub fn is_new(&self, key: &str) -> bool {
+        self.new_at.contains_key(key)
     }
 
     pub fn maybe_refresh(&mut self) {

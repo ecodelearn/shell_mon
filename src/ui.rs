@@ -9,7 +9,22 @@ use ratatui::{
     Frame,
 };
 
-pub fn draw(f: &mut Frame, app: &App) {
+/// Cor associada a cada estado de socket — paleta escolhida para diferenciar
+/// os estados de relance.
+pub fn state_color(state: &str) -> Color {
+    match state {
+        "ESTAB" => Color::Green,           // conexão ativa
+        "LISTEN" => Color::LightBlue,      // aguardando conexões
+        "SYN-SENT" | "SYN-RECV" => Color::Yellow, // handshake em andamento
+        "TIME-WAIT" => Color::Magenta,     // fechando, aguardando timeout
+        "CLOSE-WAIT" | "LAST-ACK" | "CLOSING" => Color::LightRed, // meio-fechado
+        "FIN-WAIT-1" | "FIN-WAIT-2" => Color::Red, // encerrando
+        "UNCONN" => Color::DarkGray,       // UDP sem conexão
+        _ => Color::White,
+    }
+}
+
+pub fn draw(f: &mut Frame, app: &App, table_state: &mut TableState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -20,13 +35,14 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(f.area());
 
     draw_summary(f, app, chunks[0]);
-    draw_table(f, app, chunks[1]);
+    draw_table(f, app, chunks[1], table_state);
     draw_status(f, app, chunks[2]);
 }
 
 fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.summary;
     let pause = if app.paused { " [PAUSADO]" } else { "" };
+    // Cores alinhadas com a paleta de estados (ver `state_color`).
     let text = Line::from(vec![
         Span::styled("total ", Style::default().fg(Color::DarkGray)),
         Span::styled(s.total.to_string(), bold(Color::White)),
@@ -41,10 +57,10 @@ fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(s.estab.to_string(), bold(Color::Green)),
         Span::raw("  "),
         Span::styled("listen ", Style::default().fg(Color::DarkGray)),
-        Span::styled(s.listen.to_string(), bold(Color::Yellow)),
+        Span::styled(s.listen.to_string(), bold(Color::LightBlue)),
         Span::raw("  "),
         Span::styled("time-wait ", Style::default().fg(Color::DarkGray)),
-        Span::styled(s.time_wait.to_string(), bold(Color::Red)),
+        Span::styled(s.time_wait.to_string(), bold(Color::Magenta)),
         Span::styled(pause, bold(Color::Yellow)),
     ]);
     let title = format!(
@@ -64,7 +80,7 @@ fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(text).block(block), area);
 }
 
-fn draw_table(f: &mut Frame, app: &App, area: Rect) {
+fn draw_table(f: &mut Frame, app: &App, area: Rect, table_state: &mut TableState) {
     let visible = app.visible();
     let header = Row::new(
         ["PROTO", "ESTADO", "RECV-Q", "SEND-Q", "LOCAL", "REMOTO", "PROCESSO", "PID"]
@@ -74,22 +90,16 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
     .height(1);
 
     let rows = visible.iter().map(|s| {
-        let is_new = app.new_keys.contains(&s.key());
-        let state_color = match s.state.as_str() {
-            "ESTAB" => Color::Green,
-            "LISTEN" => Color::Yellow,
-            "TIME-WAIT" | "CLOSE-WAIT" | "FIN-WAIT-1" | "FIN-WAIT-2" => Color::Red,
-            "UNCONN" => Color::DarkGray,
-            _ => Color::White,
-        };
+        let is_new = app.is_new(&s.key());
+        // Linha nova: fundo verde escuro por ~1,5s para chamar a atenção.
         let base = if is_new {
-            Style::default().fg(Color::Black).bg(Color::Green)
+            Style::default().bg(Color::Rgb(0, 60, 0))
         } else {
             Style::default()
         };
         Row::new(vec![
             Cell::from(s.netid.clone()).style(Style::default().fg(Color::Cyan)),
-            Cell::from(s.state.clone()).style(Style::default().fg(state_color)),
+            Cell::from(s.state.clone()).style(bold(state_color(&s.state))),
             Cell::from(s.recv_q.to_string()),
             Cell::from(s.send_q.to_string()),
             Cell::from(s.local()),
@@ -122,11 +132,14 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
                 .title(format!(" sockets ({count}) ")),
         );
 
-    let mut state = TableState::default();
+    // A seleção é a fonte da verdade em `app`; o offset de scroll persiste no
+    // próprio `table_state` entre os refreshes (não recriamos a cada frame).
     if count > 0 {
-        state.select(Some(app.selected.min(count - 1)));
+        table_state.select(Some(app.selected.min(count - 1)));
+    } else {
+        table_state.select(None);
     }
-    f.render_stateful_widget(table, area, &mut state);
+    f.render_stateful_widget(table, area, table_state);
 }
 
 fn draw_status(f: &mut Frame, app: &App, area: Rect) {
@@ -135,10 +148,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     if let Some(err) = &app.last_error {
         spans.push(Span::styled(format!(" ERRO: {err} "), bold(Color::Red)));
     } else if app.filter_mode {
-        spans.push(Span::styled(
-            format!(" /{}", app.filter),
-            bold(Color::Yellow),
-        ));
+        spans.push(Span::styled(format!(" /{}", app.filter), bold(Color::Yellow)));
         spans.push(Span::styled("█", Style::default().fg(Color::Yellow)));
         spans.push(Span::styled(
             "  (Enter aplica · Esc cancela)",
@@ -152,9 +162,6 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
                 "  ·  sem root: processos de outros usuários ocultos (sudo shellmon)",
                 Style::default().fg(Color::Yellow),
             ));
-        }
-        if !app.status.is_empty() {
-            spans.push(Span::styled(format!("  ·  {}", app.status), Style::default().fg(Color::Green)));
         }
     }
 

@@ -10,6 +10,7 @@ use ratatui::crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::widgets::TableState;
 use std::io::{self, stdout};
 use std::time::Duration;
 
@@ -23,8 +24,8 @@ fn main() -> io::Result<()> {
     // Modo "lista simples": imprime e sai (scriptável).
     let one_shot = args.iter().any(|a| a == "-l" || a == "--list");
 
-    // Intervalo de refresh em segundos (padrão 2).
-    let interval_secs = parse_interval(&args).unwrap_or(2.0);
+    // Intervalo de refresh em segundos (padrão 0.2s = 5x/s, sensação de tempo real).
+    let interval_secs = parse_interval(&args).unwrap_or(0.2).max(0.05);
     let interval = Duration::from_secs_f64(interval_secs);
 
     let is_root = is_root();
@@ -90,11 +91,14 @@ fn event_loop<B: ratatui::backend::Backend>(
     terminal: &mut ratatui::Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {
+    // Estado da tabela persistente: mantém o offset de scroll entre os
+    // refreshes de 200ms, sem pular para o topo a cada atualização.
+    let mut table_state = TableState::default();
     loop {
-        terminal.draw(|f| ui::draw(f, app))?;
+        terminal.draw(|f| ui::draw(f, app, &mut table_state))?;
 
         // Poll curto para manter o relógio de refresh responsivo.
-        if event::poll(Duration::from_millis(200))? {
+        if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
@@ -195,7 +199,7 @@ USO:
 
 OPÇÕES:
     -l, --list              imprime a lista uma vez e sai (scriptável)
-    -i, --interval <SEGS>   intervalo de refresh (padrão: 2)
+    -i, --interval <SEGS>   intervalo de refresh (padrão: 0.2)
     -h, --help              esta ajuda
 
 TECLAS (modo TUI):
