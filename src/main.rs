@@ -1,0 +1,213 @@
+//! shell_mon — monitor de sockets em tempo real (TUI) sobre o comando `ss`.
+
+mod app;
+mod socket;
+mod ui;
+
+use app::{App, Proto};
+use ratatui::crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use std::io::{self, stdout};
+use std::time::Duration;
+
+fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        print_help();
+        return Ok(());
+    }
+
+    // Modo "lista simples": imprime e sai (scriptável).
+    let one_shot = args.iter().any(|a| a == "-l" || a == "--list");
+
+    // Intervalo de refresh em segundos (padrão 2).
+    let interval_secs = parse_interval(&args).unwrap_or(2.0);
+    let interval = Duration::from_secs_f64(interval_secs);
+
+    let is_root = is_root();
+
+    if one_shot {
+        return run_oneshot(is_root);
+    }
+
+    run_tui(interval, is_root)
+}
+
+fn run_oneshot(is_root: bool) -> io::Result<()> {
+    let sockets = match socket::collect() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("erro: {e}");
+            std::process::exit(1);
+        }
+    };
+    let summary = socket::Summary::from(&sockets);
+    println!(
+        "total {}  tcp {}  udp {}  estab {}  listen {}  time-wait {}",
+        summary.total, summary.tcp, summary.udp, summary.estab, summary.listen, summary.time_wait
+    );
+    if !is_root {
+        eprintln!("(dica: rode com sudo para ver o processo de sockets de outros usuários)");
+    }
+    println!(
+        "{:<5} {:<11} {:<24} {:<24} {:<16} {}",
+        "PROTO", "ESTADO", "LOCAL", "REMOTO", "PROCESSO", "PID"
+    );
+    for s in &sockets {
+        println!(
+            "{:<5} {:<11} {:<24} {:<24} {:<16} {}",
+            s.netid,
+            s.state,
+            s.local(),
+            s.peer(),
+            s.process,
+            s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into())
+        );
+    }
+    Ok(())
+}
+
+fn run_tui(interval: Duration, is_root: bool) -> io::Result<()> {
+    enable_raw_mode()?;
+    let mut out = stdout();
+    execute!(out, EnterAlternateScreen)?;
+    let backend = ratatui::backend::CrosstermBackend::new(out);
+    let mut terminal = ratatui::Terminal::new(backend)?;
+
+    let mut app = App::new(interval, is_root);
+    let res = event_loop(&mut terminal, &mut app);
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    res
+}
+
+fn event_loop<B: ratatui::backend::Backend>(
+    terminal: &mut ratatui::Terminal<B>,
+    app: &mut App,
+) -> io::Result<()> {
+    loop {
+        terminal.draw(|f| ui::draw(f, app))?;
+
+        // Poll curto para manter o relógio de refresh responsivo.
+        if event::poll(Duration::from_millis(200))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                handle_key(app, key.code, key.modifiers);
+            }
+        }
+
+        app.maybe_refresh();
+        if app.should_quit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    // Modo de digitação do filtro.
+    if app.filter_mode {
+        match code {
+            KeyCode::Enter => {
+                app.filter_mode = false;
+                app.clamp_selection();
+            }
+            KeyCode::Esc => {
+                app.filter_mode = false;
+                app.filter.clear();
+            }
+            KeyCode::Backspace => {
+                app.filter.pop();
+            }
+            KeyCode::Char(c) => app.filter.push(c),
+            _ => {}
+        }
+        return;
+    }
+
+    match code {
+        KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => app.should_quit = true,
+        KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
+        KeyCode::Char('p') => app.paused = !app.paused,
+        KeyCode::Char('r') => {
+            app.refresh();
+            app.clamp_selection();
+        }
+        KeyCode::Char('/') => {
+            app.filter_mode = true;
+            app.filter.clear();
+        }
+        KeyCode::Char('t') => {
+            app.proto = app.proto.next();
+            app.clamp_selection();
+        }
+        KeyCode::Char('s') => app.sort = app.sort.next(),
+        KeyCode::Char('a') => {
+            app.proto = Proto::All;
+            app.clamp_selection();
+        }
+        KeyCode::Down | KeyCode::Char('j') => app.move_down(),
+        KeyCode::Up | KeyCode::Char('k') => app.move_up(),
+        KeyCode::PageDown => app.page_down(10),
+        KeyCode::PageUp => app.page_up(10),
+        KeyCode::Home => app.selected = 0,
+        _ => {}
+    }
+}
+
+fn parse_interval(args: &[String]) -> Option<f64> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "-i" || a == "--interval" {
+            return it.next().and_then(|v| v.parse().ok());
+        }
+        if let Some(v) = a.strip_prefix("--interval=") {
+            return v.parse().ok();
+        }
+    }
+    None
+}
+
+/// Detecta root via euid (sem dependências externas).
+fn is_root() -> bool {
+    // SAFETY: geteuid() é sempre seguro de chamar e não tem efeitos colaterais.
+    unsafe { libc_geteuid() == 0 }
+}
+
+extern "C" {
+    #[link_name = "geteuid"]
+    fn libc_geteuid() -> u32;
+}
+
+fn print_help() {
+    println!(
+        "shell_mon — monitor de sockets em tempo real (sobre `ss`)
+
+USO:
+    shellmon [OPÇÕES]
+
+OPÇÕES:
+    -l, --list              imprime a lista uma vez e sai (scriptável)
+    -i, --interval <SEGS>   intervalo de refresh (padrão: 2)
+    -h, --help              esta ajuda
+
+TECLAS (modo TUI):
+    q / Esc / Ctrl-C   sair
+    p                  pausar/retomar auto-refresh
+    r                  refresh manual
+    /                  filtrar (endereço, processo, estado, PID)
+    t                  alternar protocolo (all → tcp → udp)
+    a                  voltar para todos os protocolos
+    s                  alternar ordenação
+    ↑/↓ ou k/j         navegar  ·  PgUp/PgDn  ·  Home
+
+DICA: rode com `sudo` para ver o processo de sockets de outros usuários."
+    );
+}
