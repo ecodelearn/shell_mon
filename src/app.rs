@@ -12,6 +12,15 @@ use std::time::{Duration, Instant};
 /// de refresh (a 200ms, um único ciclo seria curto demais para enxergar).
 const HIGHLIGHT_DURATION: Duration = Duration::from_millis(1500);
 
+/// Amostra de métricas de um processo para calcular taxas entre refreshes.
+struct ProcSample {
+    pid: u32,
+    io: Option<Io>,
+    cpu: Option<u64>,
+    total: Option<u64>,
+    at: Instant,
+}
+
 /// UDP "escuta" em estado UNCONN; sockets UDP efêmeros (consultas DNS/QUIC)
 /// ligam-se a `0.0.0.0` por um instante. Só consideramos um UDP exposto depois
 /// que ele persiste por esse tempo — evita blips no contador e no log.
@@ -118,10 +127,9 @@ pub struct App {
     rdns: Resolver,
     /// Painel de inspeção do processo selecionado aberto?
     pub inspector: bool,
-    /// Amostra anterior para calcular taxas: (pid, io, cpu_ticks, total, quando).
-    /// Cada métrica é Option porque o I/O pode ser ilegível (yama) enquanto a
-    /// CPU (de /proc/stat) continua acessível.
-    proc_sample: Option<(u32, Option<Io>, Option<u64>, Option<u64>, Instant)>,
+    /// Amostra anterior para calcular taxas. Cada métrica é Option porque o I/O
+    /// pode ser ilegível (yama) enquanto a CPU (de /proc/stat) continua acessível.
+    proc_sample: Option<ProcSample>,
     /// Taxas calculadas do processo inspecionado (None = sem permissão/sem dado).
     inspect_rd: Option<f64>,
     inspect_wr: Option<f64>,
@@ -225,14 +233,14 @@ impl App {
         self.inspect_rd = None;
         self.inspect_wr = None;
         self.inspect_cpu = None;
-        if let Some((ppid, pio, pcpu, ptot, at)) = &self.proc_sample {
-            if *ppid == pid {
-                let dt = at.elapsed().as_secs_f64().max(0.001);
-                if let (Some(c), Some(p)) = (io, *pio) {
+        if let Some(prev) = &self.proc_sample {
+            if prev.pid == pid {
+                let dt = prev.at.elapsed().as_secs_f64().max(0.001);
+                if let (Some(c), Some(p)) = (io, prev.io) {
                     self.inspect_rd = Some(c.read_bytes.saturating_sub(p.read_bytes) as f64 / dt);
                     self.inspect_wr = Some(c.write_bytes.saturating_sub(p.write_bytes) as f64 / dt);
                 }
-                if let (Some(c), Some(pc), Some(t), Some(pt)) = (cpu, *pcpu, total, *ptot) {
+                if let (Some(c), Some(pc), Some(t), Some(pt)) = (cpu, prev.cpu, total, prev.total) {
                     let dtot = t.saturating_sub(pt);
                     if dtot > 0 {
                         self.inspect_cpu = Some(100.0 * c.saturating_sub(pc) as f64 / dtot as f64);
@@ -240,7 +248,13 @@ impl App {
                 }
             }
         }
-        self.proc_sample = Some((pid, io, cpu, total, Instant::now()));
+        self.proc_sample = Some(ProcSample {
+            pid,
+            io,
+            cpu,
+            total,
+            at: Instant::now(),
+        });
     }
 
     pub fn refresh(&mut self) {
