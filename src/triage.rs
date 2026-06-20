@@ -29,7 +29,7 @@ pub fn run() -> io::Result<()> {
     let mut out_lan: Vec<&Socket> = Vec::new();
 
     for s in sockets.iter().filter(|s| s.is_network()) {
-        if s.state == "LISTEN" && matches!(zone(&s.local_addr), Zone::Any | Zone::Lan | Zone::Public) {
+        if s.is_exposed() {
             exposed.push(s);
         }
         if s.state == "ESTAB" {

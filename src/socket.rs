@@ -42,6 +42,27 @@ impl Socket {
     pub fn is_network(&self) -> bool {
         self.netid == "tcp" || self.netid == "udp"
     }
+
+    /// É um serviço ligado escutando na rede? Inclui TCP em `LISTEN` e UDP em
+    /// `UNCONN` com peer curinga (UDP não tem estado LISTEN — fica em UNCONN).
+    pub fn is_bound_listener(&self) -> bool {
+        self.is_network()
+            && (self.state == "LISTEN"
+                || (self.netid == "udp"
+                    && self.state == "UNCONN"
+                    && is_wildcard_addr(&self.peer_addr)))
+    }
+
+    /// O serviço escutando é alcançável pela rede (não está só no loopback)?
+    pub fn is_exposed(&self) -> bool {
+        self.is_bound_listener()
+            && matches!(zone(&self.local_addr), Zone::Any | Zone::Lan | Zone::Public)
+    }
+}
+
+/// Endereço curinga (qualquer origem): `*`, `0.0.0.0`, `::` ou vazio.
+fn is_wildcard_addr(addr: &str) -> bool {
+    addr.is_empty() || addr == "*" || addr == "0.0.0.0" || addr == "::"
 }
 
 /// Resumo agregado (estilo `ss -s`), calculado localmente.
@@ -90,9 +111,7 @@ impl Summary {
             if !sock.is_network() {
                 continue;
             }
-            if sock.state == "LISTEN"
-                && matches!(zone(&sock.local_addr), Zone::Any | Zone::Lan | Zone::Public)
-            {
+            if sock.is_exposed() {
                 s.exposed += 1;
             }
             if sock.state == "ESTAB"
@@ -254,6 +273,21 @@ mod tests {
         assert_eq!(s.process, "systemd");
         assert_eq!(s.pid, Some(1));
         assert!(!s.is_network());
+    }
+
+    #[test]
+    fn udp_bound_wildcard_e_exposto() {
+        // Tailscale: udp UNCONN em 0.0.0.0 — escutando, antes não era pego.
+        let s = parse_line("udp UNCONN 0 0 0.0.0.0:41641 0.0.0.0:*").unwrap();
+        assert!(s.is_bound_listener());
+        assert!(s.is_exposed());
+        // UDP loopback (resolved) não é exposto.
+        let lo = parse_line("udp UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*").unwrap();
+        assert!(lo.is_bound_listener());
+        assert!(!lo.is_exposed());
+        // UDP conectado a um peer específico não é "listener".
+        let cli = parse_line("udp ESTAB 0 0 192.168.0.10:55000 8.8.8.8:53").unwrap();
+        assert!(!cli.is_bound_listener());
     }
 
     #[test]

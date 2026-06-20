@@ -183,9 +183,10 @@ fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String,
         if !s.is_network() {
             continue;
         }
-        if s.state == "LISTEN" {
+        // Rastreia TCP em LISTEN e qualquer serviço exposto (inclui UDP bound
+        // em 0.0.0.0). UDP loopback estável (resolved) fica de fora.
+        if s.state == "LISTEN" || s.is_exposed() {
             let z = zone(&s.local_addr);
-            let exposed = matches!(z, Zone::Any | Zone::Lan | Zone::Public);
             let scope = match z {
                 Zone::Any => "todas as interfaces",
                 _ => z.label(),
@@ -193,7 +194,7 @@ fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String,
             listeners.insert(
                 s.key(),
                 ListenInfo {
-                    exposed,
+                    exposed: s.is_exposed(),
                     desc: format!("{} {} ({}) [{}]", s.netid, s.local(), proc_label(s), scope),
                 },
             );
