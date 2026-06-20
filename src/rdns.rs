@@ -4,10 +4,63 @@
 //! background, com cache compartilhado, para nunca bloquear o loop de render.
 
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Por quanto tempo uma marca em cache é considerada válida (PTR muda raramente).
+const CACHE_TTL_SECS: u64 = 14 * 24 * 3600;
+
+/// Caminho do cache em disco: `$SHELLMON_RDNS_CACHE`, ou
+/// `$XDG_CACHE_HOME/shellmon/rdns.tsv`, ou `$HOME/.cache/shellmon/rdns.tsv`.
+fn cache_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("SHELLMON_RDNS_CACHE") {
+        return Some(PathBuf::from(p));
+    }
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
+    Some(base.join("shellmon").join("rdns.tsv"))
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Parseia uma linha `ip\tmarca\tepoch`, devolvendo `(ip, marca)` se ainda
+/// estiver dentro do TTL.
+fn parse_cache_line(line: &str, now: u64) -> Option<(String, String)> {
+    let mut it = line.split('\t');
+    let ip = it.next()?.trim();
+    let brand = it.next()?.trim();
+    let epoch: u64 = it.next()?.trim().parse().ok()?;
+    if ip.is_empty() || brand.is_empty() || now.saturating_sub(epoch) > CACHE_TTL_SECS {
+        return None;
+    }
+    Some((ip.to_string(), brand.to_string()))
+}
+
+/// Carrega o cache do disco (entradas válidas dentro do TTL).
+fn load_cache(path: &PathBuf) -> HashMap<String, Option<String>> {
+    let mut map = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string(path) {
+        let now = now_secs();
+        for line in content.lines() {
+            if let Some((ip, brand)) = parse_cache_line(line, now) {
+                map.insert(ip, Some(brand));
+            }
+        }
+    }
+    map
+}
 
 /// Domínios de infraestrutura mapeados para a marca real.
 fn infra_brand(domain: &str) -> Option<&'static str> {
@@ -94,6 +147,24 @@ impl Resolver {
         if !enabled {
             return Resolver { enabled: false, cache, tx: None };
         }
+        // Pré-carrega o cache em disco (resoluções de sessões anteriores).
+        let path = cache_path();
+        if let Some(p) = &path {
+            *cache.lock().unwrap() = load_cache(p);
+        }
+        // Abre o arquivo de cache em modo append para gravar novas resoluções.
+        let file: Option<Arc<Mutex<File>>> = path.as_ref().and_then(|p| {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
+                .map(|f| Arc::new(Mutex::new(f)))
+        });
+
         let (tx, rx) = mpsc::channel::<String>();
         let rx = Arc::new(Mutex::new(rx));
         // Pequeno pool de workers; o lock é solto antes do lookup, então há
@@ -101,6 +172,7 @@ impl Resolver {
         for _ in 0..4 {
             let rx = rx.clone();
             let cache = cache.clone();
+            let file = file.clone();
             thread::spawn(move || loop {
                 let msg = {
                     let guard = rx.lock().unwrap();
@@ -109,6 +181,13 @@ impl Resolver {
                 match msg {
                     Ok(ip) => {
                         let brand = brand_of(&ip);
+                        // Persiste resoluções positivas no cache em disco.
+                        if let (Some(b), Some(f)) = (&brand, &file) {
+                            let line = format!("{ip}\t{b}\t{}\n", now_secs());
+                            if let Ok(mut f) = f.lock() {
+                                let _ = f.write_all(line.as_bytes());
+                            }
+                        }
                         cache.lock().unwrap().insert(ip, brand);
                     }
                     Err(_) => break, // canal fechado: encerra
@@ -157,5 +236,21 @@ mod tests {
         // TLD de 2 níveis: a marca é o rótulo antes de com.br
         assert_eq!(brand_from_host("152-255-36-173.user.vivozap.com.br"), "vivozap");
         assert_eq!(brand_from_host("host.empresa.co.uk"), "empresa");
+    }
+
+    #[test]
+    fn cache_line_valida_e_expira() {
+        let now = 2_000_000_000;
+        // recente → ok
+        let l = format!("140.82.113.25\tgithub\t{}", now - 10);
+        assert_eq!(
+            parse_cache_line(&l, now),
+            Some(("140.82.113.25".into(), "github".into()))
+        );
+        // expirada → None
+        let old = format!("1.2.3.4\tfoo\t{}", now - CACHE_TTL_SECS - 1);
+        assert_eq!(parse_cache_line(&old, now), None);
+        // malformada → None
+        assert_eq!(parse_cache_line("lixo", now), None);
     }
 }
