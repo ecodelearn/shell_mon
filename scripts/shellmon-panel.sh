@@ -25,11 +25,10 @@ set -eu
 COLS="${SHELLMON_COLS:-118}"
 ROWS="${SHELLMON_ROWS:-30}"
 
-# Modo root: prefixa o comando com `sudo -n` e usa o binário root-only.
-ELEVATE=""
+ROOT=0
 if [ "${1:-}" = "--root" ]; then
     shift
-    ELEVATE="sudo -n"
+    ROOT=1
     BIN="${SHELLMON_BIN:-/usr/local/bin/shellmon}"
 else
     BIN="${SHELLMON_BIN:-shellmon}"
@@ -40,11 +39,21 @@ if ! command -v alacritty >/dev/null 2>&1; then
     exit 1
 fi
 
-# shellcheck disable=SC2086  # $ELEVATE precisa expandir em palavras (sudo -n)
-exec alacritty \
-    --class shellmon,shellmon \
-    --title "shell_mon" \
-    -o "window.dimensions.columns=$COLS" \
-    -o "window.dimensions.lines=$ROWS" \
-    -o "window.opacity=0.96" \
-    -e $ELEVATE "$BIN" "$@"
+ALA="alacritty --class shellmon,shellmon --title shell_mon \
+    -o window.dimensions.columns=$COLS \
+    -o window.dimensions.lines=$ROWS \
+    -o window.opacity=0.96 -e"
+
+if [ "$ROOT" = "1" ]; then
+    # Repassa o barramento D-Bus da sessão para que as notificações funcionem
+    # mesmo rodando como root (precisa de SETENV no sudoers — ver
+    # install-elevation.sh). Sem isso, o root simplesmente não notifica.
+    # shellcheck disable=SC2086
+    exec $ALA sudo -n \
+        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        "$BIN" "$@"
+else
+    # shellcheck disable=SC2086
+    exec $ALA "$BIN" "$@"
+fi

@@ -11,6 +11,11 @@ use std::time::{Duration, Instant};
 /// de refresh (a 200ms, um único ciclo seria curto demais para enxergar).
 const HIGHLIGHT_DURATION: Duration = Duration::from_millis(1500);
 
+/// UDP "escuta" em estado UNCONN; sockets UDP efêmeros (consultas DNS/QUIC)
+/// ligam-se a `0.0.0.0` por um instante. Só consideramos um UDP exposto depois
+/// que ele persiste por esse tempo — evita blips no contador e no log.
+const EXPOSE_DEBOUNCE: Duration = Duration::from_millis(1500);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Proto {
     /// Rede (TCP+UDP) — padrão; UNIX fica de fora para não inundar.
@@ -102,6 +107,10 @@ pub struct App {
     new_at: HashMap<String, Instant>,
     /// Cache por PID: nome do navegador ancestral, se houver.
     browser: HashMap<u32, Option<String>>,
+    /// Quando cada socket exposto foi visto pela primeira vez (debounce de UDP).
+    exposed_since: HashMap<String, Instant>,
+    /// Já estabelecemos a linha de base de exposição? (1º refresh = imediato).
+    exposed_baselined: bool,
     /// Log de eventos defensivos em disco (None se desabilitado).
     log: Option<EventLog>,
     /// Resolvedor de DNS reverso em background (nomes humanos pros IPs).
@@ -127,6 +136,8 @@ impl App {
             seen_keys: HashSet::new(),
             new_at: HashMap::new(),
             browser: HashMap::new(),
+            exposed_since: HashMap::new(),
+            exposed_baselined: false,
             log,
             rdns: Resolver::new(rdns_enabled),
             should_quit: false,
@@ -187,7 +198,34 @@ impl App {
                         .entry(pid)
                         .or_insert_with(|| browser_ancestor(pid));
                 }
+                // Debounce de exposição: TCP em LISTEN é estável na hora; UDP
+                // (UNCONN em 0.0.0.0) só conta depois de persistir, para não
+                // piscar com sockets efêmeros. Sockets já presentes na linha de
+                // base entram como estáveis (não viram "novo").
+                let mut stable: HashSet<String> = HashSet::new();
+                let mut still: HashMap<String, Instant> = HashMap::new();
+                for s in &sockets {
+                    if !s.is_exposed() {
+                        continue;
+                    }
+                    let key = s.key();
+                    let since = self.exposed_since.get(&key).copied().unwrap_or_else(|| {
+                        if self.exposed_baselined {
+                            now
+                        } else {
+                            now.checked_sub(EXPOSE_DEBOUNCE).unwrap_or(now)
+                        }
+                    });
+                    if s.netid == "tcp" || now.duration_since(since) >= EXPOSE_DEBOUNCE {
+                        stable.insert(key.clone());
+                    }
+                    still.insert(key, since);
+                }
+                self.exposed_since = still;
+                self.exposed_baselined = true;
+
                 self.summary = Summary::from(&sockets);
+                self.summary.exposed = stable.len(); // contagem com debounce
                 self.sockets = sockets;
                 self.last_error = None;
                 // Pede DNS reverso (em background) para pares de rede na internet.
@@ -198,7 +236,7 @@ impl App {
                 }
                 // Registra eventos defensivos (listeners/entradas da LAN).
                 if let Some(log) = self.log.as_mut() {
-                    log.record(&self.sockets);
+                    log.record(&self.sockets, &stable);
                 }
             }
             Err(e) => self.last_error = Some(e),

@@ -179,8 +179,11 @@ indicar problema:
 
 - **Zonas**: `loopback` (cinza, só a máquina) · `rede local` (ciano) · `internet`
   (amarelo). A coluna REMOTO é colorida por zona.
-- **Serviços expostos**: contador no topo de quantos serviços estão em `LISTEN`
+- **Serviços expostos**: contador no topo de quantos serviços estão escutando
   acessíveis pela rede (não-loopback) — uma porta dos fundos apareceria aqui.
+  Inclui **UDP** ligado a `0.0.0.0`/`::` (que fica em estado `UNCONN`, não
+  `LISTEN`); para esses há um **debounce** (~1,5s) que ignora sockets UDP
+  efêmeros (consultas DNS/QUIC) e só conta serviços que persistem.
 - **Entradas da LAN** (`lan-in`): conexões estabelecidas **entrando** de um peer
   da rede local para um serviço seu — fica **vermelho** quando há alguma.
 - **⚠ via navegador**: conexões abertas por um processo **descendente de um
@@ -216,6 +219,14 @@ suspeito) também disparam uma notificação via `notify-send` — para você se
 avisado na hora, mesmo com o painel fora de vista. Ligado por padrão se
 `notify-send` existir; `--no-notify` desativa. Há deduplicação para não repetir
 o mesmo alerta em sequência.
+
+As notificações precisam de um **barramento D-Bus de sessão**
+(`DBUS_SESSION_BUS_ADDRESS`). Sem ele — por exemplo, rodando via `sudo`, que
+limpa o ambiente — elas são silenciosamente desativadas (em vez de cuspir o erro
+`dbus-launch --autolaunch`). Para que o **painel root** (`shellmon-panel
+--root`) consiga notificar, o launcher repassa o barramento da sua sessão e o
+`install-elevation.sh` adiciona `SETENV` à regra sudoers; reexecute-o após
+atualizar.
 
 ### Auditoria de rede e sequestro de DNS
 

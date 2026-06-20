@@ -50,8 +50,15 @@ impl Notifier {
     }
 }
 
-/// `notify-send` está disponível?
+/// `notify-send` está utilizável?
+///
+/// Sem um barramento de sessão D-Bus (ex.: rodando via `sudo`, que limpa o
+/// ambiente), o `notify-send` tenta `dbus-launch --autolaunch` e falha com erro
+/// no terminal. Por isso só habilitamos se `DBUS_SESSION_BUS_ADDRESS` existir.
 fn available() -> bool {
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        return false;
+    }
     Command::new("notify-send")
         .arg("--version")
         .output()

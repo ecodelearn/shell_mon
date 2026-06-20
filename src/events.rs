@@ -75,8 +75,9 @@ impl EventLog {
     }
 
     /// Diffa o estado atual contra o anterior e registra os eventos relevantes.
-    pub fn record(&mut self, sockets: &[Socket]) {
-        let (listeners, inbound) = snapshot(sockets);
+    /// `exposed` são as chaves de sockets já considerados expostos com debounce.
+    pub fn record(&mut self, sockets: &[Socket], exposed: &HashSet<String>) {
+        let (listeners, inbound) = snapshot(sockets, exposed);
 
         if !self.started {
             // Primeira passada: estabelece a linha de base sem despejar tudo
@@ -167,7 +168,10 @@ fn default_path() -> PathBuf {
 }
 
 /// Extrai os conjuntos de listeners e de conexões entrantes da LAN.
-fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String, String>) {
+fn snapshot(
+    sockets: &[Socket],
+    exposed: &HashSet<String>,
+) -> (HashMap<String, ListenInfo>, HashMap<String, String>) {
     let listen_ports: HashSet<(&str, &str)> = sockets
         .iter()
         .filter(|s| s.state == "LISTEN" && s.is_network())
@@ -183,9 +187,10 @@ fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String,
         if !s.is_network() {
             continue;
         }
-        // Rastreia TCP em LISTEN e qualquer serviço exposto (inclui UDP bound
-        // em 0.0.0.0). UDP loopback estável (resolved) fica de fora.
-        if s.state == "LISTEN" || s.is_exposed() {
+        // Rastreia TCP em LISTEN e serviços expostos (com debounce, via
+        // `exposed`). UDP loopback estável e UDP efêmero ficam de fora.
+        let is_exposed = exposed.contains(&s.key());
+        if s.state == "LISTEN" || is_exposed {
             let z = zone(&s.local_addr);
             let scope = match z {
                 Zone::Any => "todas as interfaces",
@@ -194,7 +199,7 @@ fn snapshot(sockets: &[Socket]) -> (HashMap<String, ListenInfo>, HashMap<String,
             listeners.insert(
                 s.key(),
                 ListenInfo {
-                    exposed: s.is_exposed(),
+                    exposed: is_exposed,
                     desc: format!("{} {} ({}) [{}]", s.netid, s.local(), proc_label(s), scope),
                 },
             );
@@ -310,7 +315,9 @@ mod tests {
             sock("LISTEN", "tcp", "0.0.0.0", "4444", "0.0.0.0", "*"),
             sock("LISTEN", "tcp", "127.0.0.1", "11434", "0.0.0.0", "*"),
         ];
-        let (listeners, _) = snapshot(&socks);
+        let exposed: HashSet<String> =
+            socks.iter().filter(|s| s.is_exposed()).map(|s| s.key()).collect();
+        let (listeners, _) = snapshot(&socks, &exposed);
         assert_eq!(listeners.len(), 2);
         let exposed = listeners.values().filter(|l| l.exposed).count();
         assert_eq!(exposed, 1); // só o 0.0.0.0:4444
@@ -324,7 +331,9 @@ mod tests {
             // conexão de saída para a internet não conta como entrada
             sock("ESTAB", "tcp", "192.168.0.10", "55000", "8.8.8.8", "443"),
         ];
-        let (_, inbound) = snapshot(&socks);
+        let exposed: HashSet<String> =
+            socks.iter().filter(|s| s.is_exposed()).map(|s| s.key()).collect();
+        let (_, inbound) = snapshot(&socks, &exposed);
         assert_eq!(inbound.len(), 1);
     }
 }

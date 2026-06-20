@@ -42,7 +42,9 @@ echo "✓ instalado: $DEST (root:root 755)"
 
 SUDOERS=/etc/sudoers.d/shellmon
 TMP="$(mktemp)"
-printf '%s ALL=(root) NOPASSWD: %s\n' "$TARGET_USER" "$DEST" > "$TMP"
+# SETENV permite repassar DBUS_SESSION_BUS_ADDRESS/XDG_RUNTIME_DIR para que o
+# painel root (`shellmon-panel --root`) consiga enviar notificações de desktop.
+printf '%s ALL=(root) NOPASSWD:SETENV: %s\n' "$TARGET_USER" "$DEST" > "$TMP"
 if visudo -c -f "$TMP" >/dev/null 2>&1; then
     install -o root -g root -m 440 "$TMP" "$SUDOERS"
     rm -f "$TMP"
