@@ -1,0 +1,45 @@
+# Maintainer: Daniel Dias <inarte@gmail.com>
+pkgname=shellmon
+pkgver=0.1.2
+pkgrel=1
+pkgdesc="Monitor de sockets de rede em tempo real no terminal (TUI), com foco defensivo"
+arch=('x86_64')
+url="https://github.com/ecodelearn/shell_mon"
+license=('MIT')
+depends=('iproute2' 'gcc-libs')
+makedepends=('cargo')
+optdepends=('libnotify: notificações de desktop em eventos de alta severidade'
+            'alacritty: painel "sempre na tela" (shellmon-panel)')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('16b8e7442abc0ddf509912bda986175725190045987d442eea37bbb91b9d5512')
+
+prepare() {
+    cd "shell_mon-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "shell_mon-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release
+}
+
+check() {
+    cd "shell_mon-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo test --frozen --release
+}
+
+package() {
+    cd "shell_mon-$pkgver"
+    install -Dm0755 "target/release/shellmon" "$pkgdir/usr/bin/shellmon"
+    install -Dm0755 "scripts/shellmon-panel.sh" "$pkgdir/usr/bin/shellmon-panel"
+    install -Dm0644 "scripts/shellmon.desktop" \
+        "$pkgdir/usr/share/applications/shellmon.desktop"
+    install -Dm0644 "scripts/shellmon-panel-root.desktop" \
+        "$pkgdir/usr/share/applications/shellmon-panel-root.desktop"
+    install -Dm0644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm0644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

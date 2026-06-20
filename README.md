@@ -40,6 +40,16 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 
 ## Instalação
 
+### Arch Linux (AUR)
+
+```bash
+yay -S shellmon      # ou: paru -S shellmon
+```
+
+> O empacotamento fica em [`packaging/aur/`](packaging/aur/).
+
+### A partir do código
+
 ```bash
 git clone https://github.com/ecodelearn/shell_mon.git
 cd shell_mon

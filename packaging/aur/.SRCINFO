@@ -1,0 +1,16 @@
+pkgbase = shellmon
+	pkgdesc = Monitor de sockets de rede em tempo real no terminal (TUI), com foco defensivo
+	pkgver = 0.1.2
+	pkgrel = 1
+	url = https://github.com/ecodelearn/shell_mon
+	arch = x86_64
+	license = MIT
+	makedepends = cargo
+	depends = iproute2
+	depends = gcc-libs
+	optdepends = libnotify: notificações de desktop em eventos de alta severidade
+	optdepends = alacritty: painel "sempre na tela" (shellmon-panel)
+	source = shellmon-0.1.2.tar.gz::https://github.com/ecodelearn/shell_mon/archive/refs/tags/v0.1.2.tar.gz
+	sha256sums = 16b8e7442abc0ddf509912bda986175725190045987d442eea37bbb91b9d5512
+
+pkgname = shellmon
