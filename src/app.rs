@@ -2,6 +2,7 @@
 
 use crate::analysis::{browser_ancestor, zone, Zone};
 use crate::events::EventLog;
+use crate::procinfo::{self, Io};
 use crate::rdns::Resolver;
 use crate::socket::{collect, Socket, Summary};
 use std::collections::{HashMap, HashSet};
@@ -115,6 +116,16 @@ pub struct App {
     log: Option<EventLog>,
     /// Resolvedor de DNS reverso em background (nomes humanos pros IPs).
     rdns: Resolver,
+    /// Painel de inspeção do processo selecionado aberto?
+    pub inspector: bool,
+    /// Amostra anterior para calcular taxas: (pid, io, cpu_ticks, total, quando).
+    /// Cada métrica é Option porque o I/O pode ser ilegível (yama) enquanto a
+    /// CPU (de /proc/stat) continua acessível.
+    proc_sample: Option<(u32, Option<Io>, Option<u64>, Option<u64>, Instant)>,
+    /// Taxas calculadas do processo inspecionado (None = sem permissão/sem dado).
+    inspect_rd: Option<f64>,
+    inspect_wr: Option<f64>,
+    inspect_cpu: Option<f64>,
     pub should_quit: bool,
 }
 
@@ -140,6 +151,11 @@ impl App {
             exposed_baselined: false,
             log,
             rdns: Resolver::new(rdns_enabled),
+            inspector: false,
+            proc_sample: None,
+            inspect_rd: None,
+            inspect_wr: None,
+            inspect_cpu: None,
             should_quit: false,
         };
         app.refresh();
@@ -170,6 +186,61 @@ impl App {
     /// Marca (DNS reverso) já resolvida para um IP, se houver.
     pub fn brand(&self, ip: &str) -> Option<String> {
         self.rdns.get(ip)
+    }
+
+    pub fn toggle_inspector(&mut self) {
+        self.inspector = !self.inspector;
+        // Zera a amostra para não calcular taxa contra um PID antigo.
+        self.proc_sample = None;
+        self.inspect_rd = None;
+        self.inspect_wr = None;
+        self.inspect_cpu = None;
+    }
+
+    /// Socket atualmente selecionado na lista visível.
+    pub fn selected_socket(&self) -> Option<&Socket> {
+        self.visible().into_iter().nth(self.selected)
+    }
+
+    /// Taxas do processo inspecionado: (leitura B/s, escrita B/s, cpu %).
+    pub fn inspect_rates(&self) -> (Option<f64>, Option<f64>, Option<f64>) {
+        (self.inspect_rd, self.inspect_wr, self.inspect_cpu)
+    }
+
+    /// Amostra o I/O de disco e a CPU do PID, calculando taxas vs a amostra
+    /// anterior. Sem permissão (processo de outro usuário sem root) → None.
+    fn sample_proc(&mut self, pid: Option<u32>) {
+        let Some(pid) = pid else {
+            self.proc_sample = None;
+            self.inspect_rd = None;
+            self.inspect_wr = None;
+            self.inspect_cpu = None;
+            return;
+        };
+        let io = procinfo::io(pid);
+        let cpu = procinfo::cpu_ticks(pid);
+        let total = procinfo::total_jiffies();
+
+        // Calcula taxas contra a amostra anterior (cada métrica independente).
+        self.inspect_rd = None;
+        self.inspect_wr = None;
+        self.inspect_cpu = None;
+        if let Some((ppid, pio, pcpu, ptot, at)) = &self.proc_sample {
+            if *ppid == pid {
+                let dt = at.elapsed().as_secs_f64().max(0.001);
+                if let (Some(c), Some(p)) = (io, *pio) {
+                    self.inspect_rd = Some(c.read_bytes.saturating_sub(p.read_bytes) as f64 / dt);
+                    self.inspect_wr = Some(c.write_bytes.saturating_sub(p.write_bytes) as f64 / dt);
+                }
+                if let (Some(c), Some(pc), Some(t), Some(pt)) = (cpu, *pcpu, total, *ptot) {
+                    let dtot = t.saturating_sub(pt);
+                    if dtot > 0 {
+                        self.inspect_cpu = Some(100.0 * c.saturating_sub(pc) as f64 / dtot as f64);
+                    }
+                }
+            }
+        }
+        self.proc_sample = Some((pid, io, cpu, total, Instant::now()));
     }
 
     pub fn refresh(&mut self) {
@@ -237,6 +308,14 @@ impl App {
                 // Registra eventos defensivos (listeners/entradas da LAN).
                 if let Some(log) = self.log.as_mut() {
                     log.record(&self.sockets, &stable);
+                }
+                // Atualiza as taxas de I/O/CPU do processo inspecionado.
+                if self.inspector {
+                    let pid = {
+                        let v = self.visible();
+                        v.get(self.selected).and_then(|s| s.pid)
+                    };
+                    self.sample_proc(pid);
                 }
             }
             Err(e) => self.last_error = Some(e),

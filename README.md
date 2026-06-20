@@ -24,6 +24,7 @@ Pense num `htop` para conexões de rede: lista TCP/UDP, estados, filas, e qual p
 - 🎨 **Cores por estado** (ESTAB verde, LISTEN azul, TIME-WAIT magenta) e **destaque de conexões novas** por ~1,5s
 - 🏷️ **Nomes dos IPs** (DNS reverso): mostra `→ 140.82.113.25 github` em vez de só o número, resolvido em background sem travar a TUI, com **cache em disco** (`~/.cache/shellmon/rdns.tsv`, TTL de 14 dias) para não re-resolver a cada abertura (`--no-rdns` desativa)
 - 🛡️ **Visão defensiva**: zonas de confiança (loopback / **rede local** / **internet**), contadores de **serviços expostos** e **entradas da LAN**, e ⚠ destaque de conexões abertas por **descendentes de navegador**
+- 🔬 **Inspeção de processo** (tecla `i`): abre um painel para o socket selecionado com a **linha de comando**, a **árvore de processos**, e taxas ao vivo de **I/O de disco** (leitura/escrita), **CPU** e **memória** — útil para ver o que um processo suspeito está fazendo e quanto escreve em disco
 - 🩺 **Triagem** (`--triage`): relatório humanizado do estado atual (o que está exposto, quem entra da LAN, o que fala com a internet)
 - 📝 **Log de eventos**: registra em disco quando listeners/entradas da LAN aparecem e somem, para revisar depois
 - 🔔 **Notificações** (`notify-send`): alerta no desktop em eventos de alta severidade (novo serviço exposto, entrada da LAN, DNS suspeito)
@@ -96,6 +97,7 @@ shellmon --help
 | `t` | alternar protocolo (rede → tcp → udp → unix) |
 | `a` | voltar para rede (tcp+udp) |
 | `s` | alternar ordenação |
+| `i` / `Enter` | abrir/fechar inspeção do processo (cmdline, I/O, CPU, mem) |
 | `↑`/`↓` ou `k`/`j` | navegar |
 | `PgUp` / `PgDn` / `Home` | navegação rápida |
 
@@ -301,6 +303,7 @@ processo, sem cabeçalho), parseia a saída de forma robusta — lidando com IPv
 src/
 ├── socket.rs   coleta e parsing do `ss` + resumo agregado (com contadores de ameaça)
 ├── analysis.rs zonas de confiança (IP) e linhagem de processos (/proc)
+├── procinfo.rs cmdline, I/O de disco, CPU e memória por processo (/proc)
 ├── app.rs      estado: filtros, ordenação, scroll, diffs, cache de navegador
 ├── events.rs   log de eventos defensivos em disco (listeners, entradas da LAN)
 ├── notify.rs   notificações de desktop (notify-send) com deduplicação

@@ -5,6 +5,7 @@ mod app;
 mod events;
 mod netcfg;
 mod notify;
+mod procinfo;
 mod rdns;
 mod socket;
 mod triage;
@@ -172,7 +173,10 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
 
     match code {
         KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => app.should_quit = true,
+        // Esc fecha o painel de inspeção antes de sair.
+        KeyCode::Esc if app.inspector => app.inspector = false,
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
+        KeyCode::Char('i') | KeyCode::Enter => app.toggle_inspector(),
         KeyCode::Char('p') => app.paused = !app.paused,
         KeyCode::Char('r') => {
             app.refresh();
@@ -242,6 +246,7 @@ TECLAS (modo TUI):
     t                  alternar protocolo (rede → tcp → udp → unix)
     a                  voltar para rede (tcp+udp)
     s                  alternar ordenação
+    i / Enter          abrir/fechar inspeção do processo (cmdline, I/O, CPU, mem)
     ↑/↓ ou k/j         navegar  ·  PgUp/PgDn  ·  Home
 
 DICA: rode com `sudo` para ver o processo de sockets de outros usuários."

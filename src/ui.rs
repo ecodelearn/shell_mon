@@ -1,7 +1,8 @@
 //! Renderização da TUI com ratatui.
 
-use crate::analysis::{zone, Zone};
+use crate::analysis::{ancestry, zone, Zone};
 use crate::app::App;
+use crate::procinfo;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -37,18 +38,134 @@ fn zone_color(z: Zone) -> Color {
 }
 
 pub fn draw(f: &mut Frame, app: &App, table_state: &mut TableState) {
+    let mut constraints = vec![
+        Constraint::Length(3), // resumo
+        Constraint::Min(5),    // tabela
+    ];
+    if app.inspector {
+        constraints.push(Constraint::Length(6)); // painel de inspeção
+    }
+    constraints.push(Constraint::Length(1)); // status
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // resumo
-            Constraint::Min(5),    // tabela
-            Constraint::Length(1), // status
-        ])
+        .constraints(constraints)
         .split(f.area());
 
     draw_summary(f, app, chunks[0]);
     draw_table(f, app, chunks[1], table_state);
-    draw_status(f, app, chunks[2]);
+    if app.inspector {
+        draw_inspector(f, app, chunks[2]);
+        draw_status(f, app, chunks[3]);
+    } else {
+        draw_status(f, app, chunks[2]);
+    }
+}
+
+fn draw_inspector(f: &mut Frame, app: &App, area: Rect) {
+    let sock = app.selected_socket();
+    let mut lines: Vec<Line> = Vec::new();
+
+    match sock.and_then(|s| s.pid) {
+        Some(pid) => {
+            let name = procinfo::comm(pid).unwrap_or_else(|| "?".into());
+            let cmd = procinfo::cmdline(pid);
+            let chain = ancestry(pid)
+                .into_iter()
+                .take(6)
+                .collect::<Vec<_>>()
+                .join(" ← ");
+            let mem = procinfo::rss_kb(pid)
+                .map(fmt_mem)
+                .unwrap_or_else(|| "n/d".into());
+            let (rd, wr, cpu) = app.inspect_rates();
+
+            lines.push(Line::from(vec![
+                Span::styled("pid ", Style::default().fg(Color::DarkGray)),
+                Span::styled(pid.to_string(), bold(Color::White)),
+                Span::raw("  "),
+                Span::styled(name, bold(Color::Magenta)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("cmd: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(truncate(&cmd, area.width.saturating_sub(8) as usize), Style::default().fg(Color::White)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("árvore: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(chain, Style::default().fg(Color::Cyan)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("disco ", Style::default().fg(Color::DarkGray)),
+                Span::styled("↓ ", Style::default().fg(Color::Green)),
+                Span::styled(fmt_rate_opt(rd), bold(Color::Green)),
+                Span::raw("   "),
+                Span::styled("↑ ", Style::default().fg(Color::Yellow)),
+                Span::styled(fmt_rate_opt(wr), bold(Color::Yellow)),
+                Span::raw("      "),
+                Span::styled("cpu ", Style::default().fg(Color::DarkGray)),
+                Span::styled(cpu.map(|c| format!("{c:.0}%")).unwrap_or_else(|| "n/d".into()), bold(Color::White)),
+                Span::raw("   "),
+                Span::styled("mem ", Style::default().fg(Color::DarkGray)),
+                Span::styled(mem, bold(Color::White)),
+            ]));
+            if rd.is_none() {
+                lines.push(Line::from(Span::styled(
+                    "I/O indisponível — rode com sudo para ver processos de outros usuários",
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+        }
+        None => lines.push(Line::from(Span::styled(
+            "processo desconhecido (rode com sudo para atribuir o dono do socket)",
+            Style::default().fg(Color::Yellow),
+        ))),
+    }
+
+    let title = match sock {
+        Some(s) => format!(" inspeção · {} → {} ", s.local(), s.peer()),
+        None => " inspeção ".to_string(),
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Magenta));
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn fmt_rate_opt(b: Option<f64>) -> String {
+    match b {
+        Some(b) => fmt_rate(b),
+        None => "n/d".to_string(),
+    }
+}
+
+fn fmt_rate(b: f64) -> String {
+    if b < 1024.0 {
+        format!("{b:.0} B/s")
+    } else if b < 1024.0 * 1024.0 {
+        format!("{:.1} KB/s", b / 1024.0)
+    } else {
+        format!("{:.1} MB/s", b / (1024.0 * 1024.0))
+    }
+}
+
+fn fmt_mem(kb: u64) -> String {
+    if kb < 1024 {
+        format!("{kb} KB")
+    } else if kb < 1024 * 1024 {
+        format!("{:.1} MB", kb as f64 / 1024.0)
+    } else {
+        format!("{:.1} GB", kb as f64 / (1024.0 * 1024.0))
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let t: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{t}…")
+    }
 }
 
 fn draw_summary(f: &mut Frame, app: &App, area: Rect) {
@@ -204,7 +321,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::DarkGray),
         ));
     } else {
-        let help = "q sair · p pausa · / filtro · t proto · s ordem · r refresh · ↑↓ navega";
+        let help = "q sair · i inspeção · / filtro · t proto · s ordem · p pausa · ↑↓ navega";
         spans.push(Span::styled(help, Style::default().fg(Color::DarkGray)));
         if app.log_path().is_some() {
             spans.push(Span::styled("  ·  📝 log", Style::default().fg(Color::Green)));
