@@ -160,14 +160,14 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect, table_state: &mut TableState
     });
 
     let widths = [
-        Constraint::Length(6),
-        Constraint::Length(11),
-        Constraint::Length(7),
-        Constraint::Length(7),
-        Constraint::Percentage(28),
-        Constraint::Percentage(28),
-        Constraint::Min(10),
-        Constraint::Length(7),
+        Constraint::Length(5),      // PROTO
+        Constraint::Length(10),     // ESTADO
+        Constraint::Length(6),      // RECV-Q
+        Constraint::Length(6),      // SEND-Q
+        Constraint::Percentage(25), // LOCAL
+        Constraint::Percentage(36), // REMOTO (IP + nome resolvido)
+        Constraint::Min(12),        // PROCESSO
+        Constraint::Length(7),      // PID
     ];
 
     let count = visible.len();
