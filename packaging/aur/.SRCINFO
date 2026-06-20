@@ -1,6 +1,6 @@
 pkgbase = shellmon
 	pkgdesc = Monitor de sockets de rede em tempo real no terminal (TUI), com foco defensivo
-	pkgver = 0.1.2
+	pkgver = 0.1.3
 	pkgrel = 1
 	url = https://github.com/ecodelearn/shell_mon
 	arch = x86_64
@@ -10,7 +10,7 @@ pkgbase = shellmon
 	depends = gcc-libs
 	optdepends = libnotify: notificações de desktop em eventos de alta severidade
 	optdepends = alacritty: painel "sempre na tela" (shellmon-panel)
-	source = shellmon-0.1.2.tar.gz::https://github.com/ecodelearn/shell_mon/archive/refs/tags/v0.1.2.tar.gz
-	sha256sums = 16b8e7442abc0ddf509912bda986175725190045987d442eea37bbb91b9d5512
+	source = shellmon-0.1.3.tar.gz::https://github.com/ecodelearn/shell_mon/archive/refs/tags/v0.1.3.tar.gz
+	sha256sums = 52e04c4bc2d925c62a6a3d0698d5c26dfe881de0207b22365ec83046c7675b3c
 
 pkgname = shellmon
