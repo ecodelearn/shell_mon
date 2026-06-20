@@ -292,6 +292,37 @@ navegador) e um resumo no rodapé.
 > firewall de host, inspeção do roteador e observação a partir de outro
 > dispositivo.
 
+## Referência
+
+### Opções de linha de comando
+
+| Flag | Efeito |
+|---|---|
+| `-l`, `--list` | imprime a lista de sockets uma vez e sai (scriptável) |
+| `--triage` | relatório defensivo (sockets + DNS/rede + firewall) e sai |
+| `-i`, `--interval <SEGS>` | intervalo de refresh da TUI (padrão: `0.2`) |
+| `--no-log` | não registrar eventos em disco |
+| `--no-notify` | não enviar notificações de desktop |
+| `--no-rdns` | não resolver nomes (DNS reverso) dos IPs |
+| `-h`, `--help` | ajuda |
+
+### Variáveis de ambiente
+
+| Variável | Usada por | Efeito |
+|---|---|---|
+| `SHELLMON_LOG` | binário | caminho do log de eventos (padrão: `$XDG_DATA_HOME/shellmon/events.log` ou `~/.local/share/...`) |
+| `SHELLMON_RDNS_CACHE` | binário | caminho do cache de DNS reverso (padrão: `$XDG_CACHE_HOME/shellmon/rdns.tsv` ou `~/.cache/...`) |
+| `DBUS_SESSION_BUS_ADDRESS` | binário | se ausente, as notificações são desativadas (evita o erro do `dbus-launch`) |
+| `SHELLMON_BIN` | `shellmon-panel` | binário a executar (padrão: `shellmon`; no modo `--root`: `/usr/local/bin/shellmon`) |
+| `SHELLMON_COLS` / `SHELLMON_ROWS` | `shellmon-panel` | tamanho da janela Alacritty (padrão: 118 × 30) |
+| `SHELLMON_SRC` | `install-elevation.sh` | binário a instalar em `/usr/local/bin` (padrão: `target/release/shellmon`) |
+
+### Teclas, painel e log
+
+As teclas da TUI estão na tabela em [Uso](#uso); o painel "sempre na tela", a
+elevação e o log de eventos têm seções próprias acima. O histórico de versões
+fica em [CHANGELOG.md](CHANGELOG.md).
+
 ## Como funciona
 
 O `shell_mon` executa `ss -tuanpH` (TCP + UDP, todos os estados, numérico, com
